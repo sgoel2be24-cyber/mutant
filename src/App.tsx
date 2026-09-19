@@ -94,6 +94,8 @@ export default function App() {
   const [badgeNote, setBadgeNote] = useState<string>("");
   /** Set when the page was opened from a shared link, for the restore banner. */
   const [restoredFromShare, setRestoredFromShare] = useState<number | null>(null);
+  /** Curated example the shared link came from, named in the banner ("custom" → null). */
+  const [restoredTitle, setRestoredTitle] = useState<string | null>(null);
   /** Scores across this session, oldest -> newest, for the history ribbon. */
   const [history, setHistory] = useState<readonly number[]>([]);
 
@@ -118,6 +120,7 @@ export default function App() {
       setTests(shared.tests.join("\n"));
       if (shared.exampleId !== "custom") setExampleId(shared.exampleId);
       setRestoredFromShare(shared.scorePercent);
+      setRestoredTitle(exampleById(shared.exampleId)?.title ?? null);
       setPendingAutoRun(true);
     }
     return null;
@@ -538,8 +541,9 @@ export default function App() {
 
       {restoredFromShare !== null && (
         <p className="note">
-          Opened from a shared link — the sender saw {restoredFromShare}%.
-          Recomputing live{run.phase === "running" ? "…" : ""}
+          Opened a shared run{restoredTitle ? ` of “${restoredTitle}”` : ""} — the sender saw{" "}
+          {restoredFromShare}%. Recomputing live
+          {run.phase === "running" ? "…" : ""}
           {run.phase === "done" && run.summary
             ? ` — this run scored ${Math.round(run.summary.score * 100)}%.`
             : ""}

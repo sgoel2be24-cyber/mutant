@@ -124,6 +124,7 @@ li.claim {
   border: 1px solid var(--border); background: var(--panel);
   border-radius: var(--radius); padding: 14px 16px;
   display: grid; gap: 7px;
+  min-width: 0; /* grid item: let long diffs scroll/wrap instead of widening the page */
 }
 li.claim.pass { border-left: 3px solid var(--accent); }
 li.claim.fail { border-left: 3px solid var(--danger); }
@@ -131,7 +132,7 @@ li.claim.unmeasured { border-left: 3px solid var(--warn); }
 li.claim.pending { border-left: 3px solid var(--border); }
 
 .claim .top { display: flex; justify-content: space-between; gap: 16px; align-items: center; }
-.claim .statement { font-weight: 550; font-size: 14px; }
+.claim .statement { font-weight: 550; font-size: 14px; min-width: 0; overflow-wrap: anywhere; }
 .pill {
   font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.1em;
   text-transform: uppercase; padding: 3px 9px; border-radius: 99px;
@@ -149,6 +150,7 @@ pre.diff {
   margin: 0; padding: 10px 12px; overflow-x: auto;
   background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px;
   font: 12px/1.6 var(--mono); color: var(--muted); white-space: pre-wrap;
+  overflow-wrap: anywhere; max-width: 100%;
 }
 pre.diff .add { color: var(--danger); background: #2a1414; border-radius: 3px; }
 pre.diff .del { color: var(--accent); background: #0f2b22; border-radius: 3px; text-decoration: none; }

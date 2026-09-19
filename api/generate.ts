@@ -183,7 +183,7 @@ export default async function handler(
           model:
             process.env.FIREWORKS_MODEL ??
             "accounts/fireworks/models/kimi-k2p6",
-          max_tokens: 700,
+          max_tokens: 2500,
           temperature: 0.2,
           messages: [
             { role: "system", content: SYSTEM },
@@ -219,26 +219,43 @@ export default async function handler(
     }
     const data: unknown = await upstream.json();
     let content: unknown;
+    let finishReason: unknown;
+    let usage: unknown;
     if (
       typeof data === "object" &&
       data !== null &&
       Array.isArray((data as Record<string, unknown>)["choices"])
     ) {
-      const choice = (data as { choices: Record<string, unknown>[] }).choices[0];
+      const rec = data as Record<string, unknown>;
+      const choice = (rec["choices"] as Record<string, unknown>[])[0];
+      finishReason = choice?.["finish_reason"];
+      usage = rec["usage"];
       const message = choice?.["message"];
       if (typeof message === "object" && message !== null) {
-        content = (message as Record<string, unknown>)["content"];
+        const msg = message as Record<string, unknown>;
+        content = msg["content"];
+        // Some reasoning models emit `reasoning_content` and leave `content`
+        // empty when the token budget is consumed by reasoning.
+        if ((typeof content !== "string" || content.trim() === "") &&
+            typeof msg["reasoning_content"] === "string") {
+          content = msg["reasoning_content"];
+        }
       }
     }
     if (typeof content !== "string") {
-      send(res, 502, { error: "no content from upstream" });
+      send(res, 502, {
+        error: "no content from upstream",
+        detail: JSON.stringify({ finishReason, usage }).slice(0, 240),
+      });
       return;
     }
     const tests = extractTests(content);
     if (tests.length === 0) {
       send(res, 502, {
         error: "could not parse tests",
-        detail: content.slice(0, 400).replace(/\s+/g, " "),
+        detail:
+          `finish=${String(finishReason)} ` +
+          content.slice(0, 400).replace(/\s+/g, " "),
       });
       return;
     }

@@ -3,6 +3,7 @@ import {
   decodeResponse,
   encodeRequest,
   summarize,
+  selectScoredTests,
   type MutantResult,
 } from "./runner";
 
@@ -73,5 +74,20 @@ describe("worker protocol", () => {
     expect(() => decodeResponse("{}")).toThrow();
     expect(() => decodeResponse(JSON.stringify({ kind: "nope", runId: 1 }))).toThrow();
     expect(() => decodeResponse(JSON.stringify({ kind: "result" }))).toThrow();
+  });
+});
+
+describe("selectScoredTests (gate enforcement)", () => {
+  it("regression: two long tests sharing an 80-char prefix do not collide", () => {
+    const prefix = "calculateGst(1000, 'standard', 'intra-state', true, false, 'retail', 'FY26') === 1180 ";
+    const good = prefix + "&& true";
+    const bad = prefix + "&& false";
+    const trunc = (t: string) => t.slice(0, 77) + "...";
+    expect(trunc(good)).toBe(trunc(bad));
+    const kept = selectScoredTests([good, bad], [
+      { name: trunc(good), passed: true },
+      { name: trunc(bad), passed: false },
+    ]);
+    expect(kept).toEqual([good]);
   });
 });

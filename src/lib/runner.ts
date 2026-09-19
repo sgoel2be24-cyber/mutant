@@ -112,3 +112,16 @@ export function decodeResponse(raw: string): WorkerResponse {
   if (typeof rec["runId"] !== "number") throw new Error("bad worker runId");
   return v as WorkerResponse;
 }
+
+/**
+ * Enforce the gate: keep exactly the tests that passed on the original code.
+ * Matched by POSITION, not by display name — names are truncated to 80 chars,
+ * so two long tests sharing a prefix would otherwise collide and a test that
+ * fails on the original could slip into scoring and "kill" every mutant.
+ */
+export function selectScoredTests(
+  tests: readonly string[],
+  gateOutcomes: readonly TestOutcome[],
+): string[] {
+  return tests.filter((_, i) => gateOutcomes[i]?.passed === true);
+}

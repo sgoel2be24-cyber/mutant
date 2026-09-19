@@ -9,9 +9,12 @@ import { useCountUp, useRevealCascade, useReducedMotion } from "./lib/hooks";
 import { buildShareUrl, encodeShare, readShareFromLocation } from "./lib/share";
 import { explainSurvival } from "./lib/explain";
 import {
+  baselineFor,
+  claimStrong,
   enforceProvability,
   formatMeasurement,
   scorecard,
+  type Baseline,
   type Claim,
   type EvidenceReport,
 } from "./lib/evidence";
@@ -36,35 +39,6 @@ interface RunState {
   durationMs?: number;
   progress?: { done: number; total: number };
   error?: string;
-}
-
-/**
- * The improvement claim is only rendered as proven when the numbers show an
- * actual rise; otherwise it stays pending with no measurement attached.
- */
-function claimStrong(
-  current: number,
-  baseline: { score: number; survivors: number; total: number },
-): Claim {
-  const base: Claim = {
-    id: "claim-strong",
-    statement: "Generated tests measurably improve the mutation score.",
-    state: "pending",
-    artifacts: [{ kind: "log", ref: "live run on this page" }],
-    demoStep: "beat 4 — score after Generate + re-Run",
-  };
-  if (current <= baseline.score) return base;
-  return {
-    ...base,
-    statement: `Generated boundary tests raised the mutation score from ${baseline.score}% to ${current}%.`,
-    state: "pass",
-    measurement: {
-      label: "mutation score, generated tests vs baseline",
-      before: baseline.score,
-      after: current,
-      unit: "%",
-    },
-  };
 }
 
 export default function App() {
@@ -96,8 +70,9 @@ export default function App() {
   const [restoredFromShare, setRestoredFromShare] = useState<number | null>(null);
   /** Curated example the shared link came from, named in the banner ("custom" → null). */
   const [restoredTitle, setRestoredTitle] = useState<string | null>(null);
-  /** Scores across this session, oldest -> newest, for the history ribbon. */
-  const [history, setHistory] = useState<readonly number[]>([]);
+  /** Scores across this session, oldest -> newest, for the history ribbon.
+   *  Tagged with the code they measured: the ribbon only compares like with like. */
+  const [history, setHistory] = useState<readonly { code: string; score: number }[]>([]);
 
   const loadExample = (id: string) => {
     const ex = exampleById(id);
@@ -107,6 +82,9 @@ export default function App() {
     setTests(ex.seedTests.join("\n"));
     setRun({ phase: "idle" });
     setGenNote("");
+    setTargetNote("");
+    setEquivSuspects([]);
+    setGenerated(false);
   };
 
   // Restore a shared run: hash -> code + tests, then AUTO-RUN it so the judge
@@ -136,10 +114,12 @@ export default function App() {
    * written" must describe that state, not whatever the latest run shows.
    * Otherwise the claim keeps asserting weakness after the score has risen.
    */
-  const [baseline, setBaseline] = useState<
-    { score: number; survivors: number; total: number } | null
-  >(null);
+  const [baselineState, setBaseline] = useState<Baseline | null>(null);
+  /** Never compare against a baseline measured on different code. */
+  const baseline = baselineFor(baselineState, code);
+  /** True once model-written tests were added for the current code. */
   const [generated, setGenerated] = useState(false);
+  const sessionScores = history.filter((h) => h.code === code).map((h) => h.score);
 
   const evidence: EvidenceReport = useMemo(() => {
     if (run.phase !== "done" || !run.summary || !baseline) {
@@ -162,10 +142,10 @@ export default function App() {
         artifacts: [{ kind: "log", ref: "live run on this page" }],
         demoStep: "beat 2 — survivor list at baseline",
       },
-      claimStrong(current, baseline),
+      claimStrong(current, baseline, code, generated),
     ];
     return enforceProvability({ generatedAt: new Date().toISOString(), claims });
-  }, [run.phase, run.summary, baseline]);
+  }, [run.phase, run.summary, baseline, code, generated]);
 
   // Auto-run a restored share link once the state has settled.
   if (pendingAutoRun && parsedTests.length > 0 && run.phase === "idle") {
@@ -212,7 +192,9 @@ export default function App() {
       });
 
       // Second pass: do the survivors also survive the curated boundary suite?
-      if (example && campaign.gateFailures.length === 0) {
+      // Only meaningful on the example's own code — the curated suite says
+      // nothing about an edited function.
+      if (example && code === example.code && campaign.gateFailures.length === 0) {
         const survivors = mutants.filter(
           (m) =>
             campaign.results.find((r) => r.mutantId === m.id)?.status ===
@@ -224,10 +206,14 @@ export default function App() {
             example.strongTests,
             survivors,
           );
+          // If any curated test fails on the original, the probe is not
+          // trustworthy (an empty suite "passes" every mutant) — flag nothing.
           setEquivSuspects(
-            probe.results
-              .filter((r) => r.status === "survived")
-              .map((r) => r.mutantId),
+            probe.gateFailures.length > 0
+              ? []
+              : probe.results
+                  .filter((r) => r.status === "survived")
+                  .map((r) => r.mutantId),
           );
         } else {
           setEquivSuspects([]);
@@ -237,12 +223,13 @@ export default function App() {
       }
       if (baseline === null && campaign.gateFailures.length === 0) {
         setBaseline({
+          code,
           score: Math.round(summary.score * 100),
           survivors: summary.survived,
           total: summary.total,
         });
       }
-      setHistory((h) => [...h, Math.round(summary.score * 100)]);
+      setHistory((h) => [...h, { code, score: Math.round(summary.score * 100) }]);
     } catch (e) {
       setRun({
         phase: "error",
@@ -322,6 +309,7 @@ export default function App() {
         `Added ${good.length} test(s) targeting ${mutant.id} — re-scoring. ` +
           `Each was verified to pass on the original and fail on the mutant.`,
       );
+      setGenerated(true);
       // Mark the target so its card pulses once the re-run shows it dead.
       setJustKilledId(mutant.id);
       await doRun(merged);
@@ -502,7 +490,10 @@ export default function App() {
             id="code"
             spellCheck={false}
             value={code}
-            onChange={(e) => setCode(e.target.value)}
+            onChange={(e) => {
+              setCode(e.target.value);
+              setGenerated(false);
+            }}
           />
         </div>
         <div className="panel">
@@ -581,15 +572,15 @@ export default function App() {
             </span>
           </section>
 
-          {history.length > 1 && (
+          {sessionScores.length > 1 && (
             <div className="history" aria-label="score history this session">
               <span className="history-label">this session</span>
               <span className="history-line">
-                {history.map((s, i) => (
-                  <span key={i} className={`tick ${i === history.length - 1 ? "now" : ""}`} style={{ height: `${8 + Math.round((s / 100) * 22)}px` }} title={`run ${i + 1}: ${s}%`} />
+                {sessionScores.map((s, i) => (
+                  <span key={i} className={`tick ${i === sessionScores.length - 1 ? "now" : ""}`} style={{ height: `${8 + Math.round((s / 100) * 22)}px` }} title={`run ${i + 1}: ${s}%`} />
                 ))}
               </span>
-              <span className="history-end">{history.join("% → ")}%</span>
+              <span className="history-end">{sessionScores.join("% → ")}%</span>
             </div>
           )}
 

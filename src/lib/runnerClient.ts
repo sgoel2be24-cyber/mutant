@@ -13,6 +13,7 @@
 import MutantWorker from "./worker.ts?worker";
 import {
   decodeResponse,
+  selectScoredTests,
   type MutantResult,
   type SuiteRun,
   type WorkerRequest,
@@ -107,10 +108,7 @@ export async function runMutationCampaign(
 
   const gate = await runOnce(originalCode, tests, counter++, timeoutMs);
   const gateFailures = gate.outcomes.filter((o) => !o.passed).map((o) => o.name);
-  const passingSet = new Set(
-    gate.outcomes.filter((o) => o.passed).map((o) => o.name),
-  );
-  const scoredTests = tests.filter((t) => passingSet.has(truncateName(t, 80)));
+  const scoredTests = selectScoredTests(tests, gate.outcomes);
 
   const results: MutantResult[] = [];
   for (const mutant of mutants) {

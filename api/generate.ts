@@ -12,7 +12,8 @@
  * Guardrails (stated in the README, not hidden):
  * - per-IP rate limit: 6 requests / minute, 30 / hour (in-memory, per-instance)
  * - payload caps: code <= 4000 chars, at most 8 existing tests echoed back
- * - max_tokens 700, temperature 0.2, strict JSON instruction
+ * - max_tokens 2500 (reasoning models spend budget before answering), temperature 0.2,
+ *   strict JSON instruction
  * - any failure returns a JSON error the client turns into its offline path
  */
 

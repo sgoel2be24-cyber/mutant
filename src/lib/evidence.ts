@@ -92,3 +92,50 @@ export function formatMeasurement(m: Measurement): string {
       : ` (${arrow}${delta.toFixed(1)}% from baseline)`;
   return `${m.label}: ${m.before}${unit} → ${m.after}${unit}${tail}`;
 }
+
+/** The first clean run of a given piece of code — what "the suite as written" means. */
+export interface Baseline {
+  /** The exact source this baseline measured. A baseline never transfers to other code. */
+  readonly code: string;
+  readonly score: number;
+  readonly survivors: number;
+  readonly total: number;
+}
+
+/** The baseline that applies to `code`, or null when none was measured for it. */
+export function baselineFor(baseline: Baseline | null, code: string): Baseline | null {
+  return baseline !== null && baseline.code === code ? baseline : null;
+}
+
+/**
+ * "Generated tests measurably improve the score" is proven only when the
+ * baseline measured THIS code, tests were actually generated for it, and the
+ * score rose. Switching examples or hand-editing tests must never render as
+ * a model-driven improvement.
+ */
+export function claimStrong(
+  current: number,
+  baseline: Baseline,
+  code: string,
+  generated: boolean,
+): Claim {
+  const base: Claim = {
+    id: "claim-strong",
+    statement: "Generated tests measurably improve the mutation score.",
+    state: "pending",
+    artifacts: [{ kind: "log", ref: "live run on this page" }],
+    demoStep: "beat 4 — score after Generate + re-Run",
+  };
+  if (baseline.code !== code || !generated || current <= baseline.score) return base;
+  return {
+    ...base,
+    statement: `Generated boundary tests raised the mutation score from ${baseline.score}% to ${current}%.`,
+    state: "pass",
+    measurement: {
+      label: "mutation score, generated tests vs baseline",
+      before: baseline.score,
+      after: current,
+      unit: "%",
+    },
+  };
+}

@@ -41,9 +41,9 @@ export async function generateTests(
         source: "fallback",
         tests: example.strongTests,
         note:
-          "Loaded the curated boundary suite — the model path needs an API key " +
-          "in this deployment, so the demo stays fully functional without one. " +
-          "(reason: unavailable)",
+          "Model generation was unavailable, so the curated boundary suite was " +
+          "loaded instead — the demo stays fully functional without the model. " +
+          `(reason: ${e instanceof Error ? e.message : "unavailable"})`,
       };
     }
     throw e;

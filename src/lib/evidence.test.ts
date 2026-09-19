@@ -5,6 +5,8 @@ import {
   isProvable,
   percentDelta,
   scorecard,
+  baselineFor,
+  claimStrong,
   type Artifact,
   type Claim,
   type EvidenceReport,
@@ -123,5 +125,35 @@ describe("formatMeasurement", () => {
     expect(formatMeasurement({ label: "attacks blocked", before: 7, after: 7 })).toBe(
       "attacks blocked: 7 → 7 (=0.0% from baseline)",
     );
+  });
+});
+
+describe("claimStrong / baselineFor — a baseline never transfers across code", () => {
+  const gst = { code: "function gst(){}", score: 35, survivors: 11, total: 17 };
+
+  it("does not apply a baseline measured on different code", () => {
+    expect(baselineFor(gst, "function lateFee(){}")).toBeNull();
+    expect(baselineFor(gst, gst.code)).toBe(gst);
+    expect(baselineFor(null, gst.code)).toBeNull();
+  });
+
+  it("regression: switching examples (35% -> 53%) is NOT a generated improvement", () => {
+    const c = claimStrong(53, gst, "function lateFee(){}", false);
+    expect(c.state).toBe("pending");
+    expect(c.measurement).toBeUndefined();
+  });
+
+  it("stays pending when the score rose without generation (hand-edited tests)", () => {
+    expect(claimStrong(80, gst, gst.code, false).state).toBe("pending");
+  });
+
+  it("stays pending when generation did not raise the score", () => {
+    expect(claimStrong(35, gst, gst.code, true).state).toBe("pending");
+  });
+
+  it("passes only for same code + generated + a real rise", () => {
+    const c = claimStrong(100, gst, gst.code, true);
+    expect(c.state).toBe("pass");
+    expect(c.measurement).toMatchObject({ before: 35, after: 100 });
   });
 });

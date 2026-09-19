@@ -28,6 +28,14 @@ interface Bucket {
 const buckets = new Map<string, Bucket>();
 const MINUTE_LIMIT = 6;
 const HOUR_LIMIT = 30;
+/**
+ * Platform-wide ceiling, independent of the per-IP bucket. The per-IP limiter is
+ * best-effort (see clientIp); this bounds the total cost an attacker can cause
+ * even if they rotate whatever identifier the limiter keys on.
+ */
+const GLOBAL_HOUR_LIMIT = 150;
+let globalHourCount = 0;
+let globalHourWindow = 0;
 
 function rateLimited(ip: string, now: number): boolean {
   let b = buckets.get(ip);
@@ -45,7 +53,16 @@ function rateLimited(ip: string, now: number): boolean {
   }
   b.minuteCount++;
   b.hourCount++;
-  return b.minuteCount > MINUTE_LIMIT || b.hourCount > HOUR_LIMIT;
+  if (now - globalHourWindow > 3_600_000) {
+    globalHourWindow = now;
+    globalHourCount = 0;
+  }
+  globalHourCount++;
+  return (
+    b.minuteCount > MINUTE_LIMIT ||
+    b.hourCount > HOUR_LIMIT ||
+    globalHourCount > GLOBAL_HOUR_LIMIT
+  );
 }
 
 function send(res: ServerResponse, status: number, body: Record<string, unknown>): void {
@@ -70,6 +87,25 @@ async function readJsonBody(req: IncomingMessage): Promise<unknown> {
 function headerValue(req: IncomingMessage, name: string): string | undefined {
   const v = req.headers[name.toLowerCase()];
   return Array.isArray(v) ? v[0] : v;
+}
+
+/**
+ * Best-effort client identity for rate limiting.
+ *
+ * `x-forwarded-for` is client-appendable, so its FIRST value is attacker
+ * controlled and a rotating header defeats a naive limiter. Prefer
+ * `x-real-ip`, which the platform sets, and otherwise take the LAST
+ * x-forwarded-for entry (appended by the closest trusted proxy). This is still
+ * best-effort — it is a quota guard, not a security boundary, and the global
+ * ceiling exists because of exactly that.
+ */
+export function clientIp(req: IncomingMessage): string {
+  const real = headerValue(req, "x-real-ip");
+  if (real && real.trim() !== "") return real.trim();
+  const forwarded = headerValue(req, "x-forwarded-for");
+  if (!forwarded) return "unknown";
+  const parts = forwarded.split(",").map((p) => p.trim()).filter((p) => p !== "");
+  return parts.length > 0 ? (parts[parts.length - 1] as string) : "unknown";
 }
 
 /** Pull a JSON array of test expressions out of model output. */
@@ -133,8 +169,7 @@ export default async function handler(
     return;
   }
 
-  const forwarded = headerValue(req, "x-forwarded-for");
-  const ip = forwarded?.split(",")[0]?.trim() ?? "unknown";
+  const ip = clientIp(req);
   if (rateLimited(ip, Date.now())) {
     send(res, 429, { error: "rate limited" });
     return;

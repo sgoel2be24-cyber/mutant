@@ -114,7 +114,9 @@ export async function runMutationCampaign(
 
   const results: MutantResult[] = [];
   for (const mutant of mutants) {
+    const mutantStarted = performance.now();
     const run = await runOnce(mutant.code, scoredTests, counter++, timeoutMs);
+    const mutantMs = performance.now() - mutantStarted;
     const killer = run.outcomes.find((o) => !o.passed);
     // An unparseable mutant/expression is not a kill; it is excluded entirely.
     const invalid = run.outcomes.some((o) => o.syntaxError === true);
@@ -130,7 +132,12 @@ export async function runMutationCampaign(
       status === "survived" || status === "invalid" || killer === undefined
         ? undefined
         : killer.name;
-    results.push({ mutantId: mutant.id, status, killedBy, durationMs: 0 });
+    results.push({
+      mutantId: mutant.id,
+      status,
+      killedBy,
+      durationMs: Math.round(mutantMs),
+    });
     config.onProgress?.(results.length, mutants.length);
   }
 

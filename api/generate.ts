@@ -1,18 +1,22 @@
 /**
  * POST /api/generate — the app's ONLY server-side piece.
  *
- * Why a proxy at all: the browser must never see an API key. Why it stays
- * small: the mutation engine, scoring, validation gate and evidence all run
- * client-side; this endpoint just asks a model for test expressions.
+ * Why a proxy: the browser must never see an API key. Why it stays small: the
+ * mutation engine, scoring, validation gate and evidence all run client-side;
+ * this endpoint only asks a model for test expressions.
  *
- * Guardrails (deliberate, stated in the README):
- * - per-IP rate limit: 6 requests / minute, 30 / hour (in-memory; per-instance)
- * - payload caps: code <= 4000 chars, <= 50 existing tests, <= 8 sent
- * - max_tokens 700, temperature 0.2, JSON-shaped instruction
- * - failures return 502/429 JSON the client turns into the fallback path
+ * Runtime note: Vercel's Node.js runtime passes an IncomingMessage /
+ * ServerResponse (NOT the Web Request/Response pair), so the handler reads the
+ * body off the stream and writes with res.end.
+ *
+ * Guardrails (stated in the README, not hidden):
+ * - per-IP rate limit: 6 requests / minute, 30 / hour (in-memory, per-instance)
+ * - payload caps: code <= 4000 chars, at most 8 existing tests echoed back
+ * - max_tokens 700, temperature 0.2, strict JSON instruction
+ * - any failure returns a JSON error the client turns into its offline path
  */
 
-type Ip = string;
+import type { IncomingMessage, ServerResponse } from "node:http";
 
 interface Bucket {
   minuteCount: number;
@@ -21,11 +25,11 @@ interface Bucket {
   hourWindow: number;
 }
 
-const buckets = new Map<Ip, Bucket>();
+const buckets = new Map<string, Bucket>();
 const MINUTE_LIMIT = 6;
 const HOUR_LIMIT = 30;
 
-function rateLimited(ip: Ip, now: number): boolean {
+function rateLimited(ip: string, now: number): boolean {
   let b = buckets.get(ip);
   if (!b) {
     b = { minuteCount: 0, minuteWindow: now, hourCount: 0, hourWindow: now };
@@ -44,51 +48,111 @@ function rateLimited(ip: Ip, now: number): boolean {
   return b.minuteCount > MINUTE_LIMIT || b.hourCount > HOUR_LIMIT;
 }
 
-const json = (status: number, body: Record<string, unknown>): Response =>
-  new Response(JSON.stringify(body), {
-    status,
-    headers: { "content-type": "application/json" },
-  });
+function send(res: ServerResponse, status: number, body: Record<string, unknown>): void {
+  res.statusCode = status;
+  res.setHeader("content-type", "application/json");
+  res.end(JSON.stringify(body));
+}
+
+async function readJsonBody(req: IncomingMessage): Promise<unknown> {
+  const chunks: Buffer[] = [];
+  let size = 0;
+  for await (const chunk of req) {
+    const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk));
+    size += buf.length;
+    if (size > 64 * 1024) throw new Error("body too large");
+    chunks.push(buf);
+  }
+  const raw = Buffer.concat(chunks).toString("utf8");
+  return raw.length === 0 ? {} : JSON.parse(raw);
+}
+
+function headerValue(req: IncomingMessage, name: string): string | undefined {
+  const v = req.headers[name.toLowerCase()];
+  return Array.isArray(v) ? v[0] : v;
+}
+
+/** Pull a JSON array of test expressions out of model output. */
+export function extractTests(content: string): string[] {
+  const fence = content.match(/```(?:json)?\s*([\s\S]*?)```/);
+  const body = fence ? (fence[1] as string) : content;
+  try {
+    const parsed: unknown = JSON.parse(body.trim());
+    if (Array.isArray(parsed)) {
+      return parsed.filter((t): t is string => typeof t === "string");
+    }
+    if (
+      typeof parsed === "object" &&
+      parsed !== null &&
+      Array.isArray((parsed as Record<string, unknown>)["tests"])
+    ) {
+      return ((parsed as Record<string, unknown>)["tests"] as unknown[]).filter(
+        (t): t is string => typeof t === "string",
+      );
+    }
+  } catch {
+    // not JSON — fall through
+  }
+  return [];
+}
 
 const SYSTEM = [
   "You write JavaScript test expressions for a function under test.",
   "Each test is ONE boolean expression, self-contained, calling the function",
-  "by the name defined in the user's code. Use only ===/!== comparisons and",
-  "arithmetic on literals. No imports, no variables, no helper functions, no",
-  "console.log. Target boundary values and edge cases that would catch small",
-  "logic bugs (off-by-one, flipped operators, wrong constants).",
-  "Reply with ONLY a JSON object: {\"tests\": [\"expr\", ...]} with 6-10 tests.",
+  "by the name defined in the user's code. Use only comparisons and arithmetic",
+  "on literals. No imports, no variables, no helper functions, no console.log.",
+  "Target boundary values and edge cases that catch small logic bugs:",
+  "off-by-one comparisons, wrong constants, dropped guards, sign errors.",
+  'Reply with ONLY a JSON object: {"tests": ["expr", ...]} with 6-10 tests.',
 ].join(" ");
 
-export default async function handler(req: Request): Promise<Response> {
+export const config = { maxDuration: 30 };
+
+export default async function handler(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<void> {
   if (req.method !== "POST") {
-    return json(405, { error: "method not allowed" });
+    send(res, 405, { error: "method not allowed" });
+    return;
   }
 
-  const ip =
-    req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
+  const forwarded = headerValue(req, "x-forwarded-for");
+  const ip = forwarded?.split(",")[0]?.trim() ?? "unknown";
   if (rateLimited(ip, Date.now())) {
-    return json(429, { error: "rate limited" });
+    send(res, 429, { error: "rate limited" });
+    return;
   }
 
   const key = process.env.FIREWORKS_API_KEY;
   if (!key) {
-    return json(503, { error: "generation unavailable (no key configured)" });
+    send(res, 503, { error: "generation unavailable (no key configured)" });
+    return;
   }
 
   let payload: { code?: unknown; existingTests?: unknown };
   try {
-    payload = (await req.json()) as { code?: unknown; existingTests?: unknown };
+    payload = (await readJsonBody(req)) as {
+      code?: unknown;
+      existingTests?: unknown;
+    };
   } catch {
-    return json(400, { error: "bad json" });
+    send(res, 400, { error: "bad json" });
+    return;
   }
 
   const code = typeof payload.code === "string" ? payload.code : "";
   const existing = Array.isArray(payload.existingTests)
     ? payload.existingTests.filter((t): t is string => typeof t === "string")
     : [];
-  if (code.length === 0) return json(400, { error: "code required" });
-  if (code.length > 4000) return json(413, { error: "code too long" });
+  if (code.length === 0) {
+    send(res, 400, { error: "code required" });
+    return;
+  }
+  if (code.length > 4000) {
+    send(res, 413, { error: "code too long" });
+    return;
+  }
 
   try {
     const upstream = await fetch(
@@ -102,7 +166,7 @@ export default async function handler(req: Request): Promise<Response> {
         body: JSON.stringify({
           model:
             process.env.FIREWORKS_MODEL ??
-            "accounts/fireworks/models/kimi-k2p6-instruct",
+            "accounts/fireworks/models/kimi-k2p6",
           max_tokens: 700,
           temperature: 0.2,
           messages: [
@@ -116,7 +180,7 @@ export default async function handler(req: Request): Promise<Response> {
                       .slice(0, 8)
                       .join("\n")}\n\n`
                   : "") +
-                `Return {"tests": [...]} now.`,
+                'Return {"tests": [...]} now.',
             },
           ],
         }),
@@ -124,40 +188,34 @@ export default async function handler(req: Request): Promise<Response> {
     );
 
     if (!upstream.ok) {
-      return json(502, { error: `upstream ${upstream.status}` });
+      send(res, 502, { error: `upstream ${upstream.status}` });
+      return;
     }
     const data: unknown = await upstream.json();
-    const content =
-      typeof data === "object" && data !== null &&
+    let content: unknown;
+    if (
+      typeof data === "object" &&
+      data !== null &&
       Array.isArray((data as Record<string, unknown>)["choices"])
-        ? ((data as Record<string, { message?: { content?: unknown } }[]>)["choices"][0]?.["message"]?.["content"])
-        : undefined;
-    if (typeof content !== "string") {
-      return json(502, { error: "no content from upstream" });
-    }
-    // Extract tests server-side too; client re-validates and gates anyway.
-    const fence = content.match(/```(?:json)?\s*([\s\S]*?)```/);
-    const body = fence ? (fence[1] as string) : content;
-    let tests: string[] = [];
-    try {
-      const parsed: unknown = JSON.parse(body.trim());
-      if (Array.isArray(parsed)) {
-        tests = parsed.filter((t): t is string => typeof t === "string");
-      } else if (
-        typeof parsed === "object" && parsed !== null &&
-        Array.isArray((parsed as Record<string, unknown>)["tests"])
-      ) {
-        tests = ((parsed as Record<string, unknown>)["tests"] as unknown[]).filter(
-          (t): t is string => typeof t === "string",
-        );
+    ) {
+      const choice = (data as { choices: Record<string, unknown>[] }).choices[0];
+      const message = choice?.["message"];
+      if (typeof message === "object" && message !== null) {
+        content = (message as Record<string, unknown>)["content"];
       }
-    } catch {
-      tests = [];
     }
-    if (tests.length === 0) return json(502, { error: "could not parse tests" });
-    return json(200, { tests: tests.slice(0, 12) });
+    if (typeof content !== "string") {
+      send(res, 502, { error: "no content from upstream" });
+      return;
+    }
+    const tests = extractTests(content);
+    if (tests.length === 0) {
+      send(res, 502, { error: "could not parse tests" });
+      return;
+    }
+    send(res, 200, { tests: tests.slice(0, 12) });
   } catch (e) {
-    return json(502, {
+    send(res, 502, {
       error: e instanceof Error ? e.message : "generation failed",
     });
   }

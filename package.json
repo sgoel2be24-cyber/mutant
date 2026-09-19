@@ -8,10 +8,11 @@
     "dev": "vite",
     "build": "tsc -p tsconfig.json && vite build",
     "preview": "vite preview --port 4173 --strictPort",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.api.json --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "verify:serve": "python3 scripts/verify_serve.py"
+    "verify:serve": "python3 scripts/verify_serve.py",
+    "verify": "pnpm typecheck && pnpm test && pnpm build && pnpm verify:serve"
   },
   "dependencies": {
     "acorn": "^8.18.0",
@@ -19,6 +20,7 @@
     "react-dom": "^19.3.0"
   },
   "devDependencies": {
+    "@types/node": "^26.6.1",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
     "@vitejs/plugin-react": "^6.1.1",

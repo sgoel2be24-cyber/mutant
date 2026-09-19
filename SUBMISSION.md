@@ -14,7 +14,12 @@ https://github.com/sgoel2be24-cyber/mutant
 
 https://mutant-omega.vercel.app
 
-## Project Description
+## Project Description — SHORT (≈95 words, use if the form caps length)
+
+Mutant answers a question every passing test suite hides: would these tests actually fail if the code were wrong? Paste any JavaScript function and its tests, and Mutant rewrites the code into dozens of real bugs — flipped operators, nudged boundaries, wiped constants, dropped guards — then runs the suite against every mutant in a sandboxed Web Worker. Survivors are bugs your tests cannot find, shown as exact diffs, with each kill attributed to the test that caught it. It then generates stronger boundary tests and proves the improvement as a number: a passing one-line suite scores 35%, and 100% after. Runs entirely in the browser.
+
+## Project Description — FULL (≈340 words)
+
 
 Every passing test suite hides a question: would these tests actually fail if the code were wrong? Coverage tools don't answer it — they count executed lines, not caught bugs.
 

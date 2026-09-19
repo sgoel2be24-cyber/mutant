@@ -6,6 +6,7 @@ import { summarize, type MutantResult, type ScoreSummary } from "./lib/runner";
 import { diffSource } from "./lib/diff";
 import { generateTests, generateTargetedTest } from "./lib/generate";
 import { useCountUp, useRevealCascade, useReducedMotion } from "./lib/hooks";
+import { buildShareUrl, readShareFromLocation } from "./lib/share";
 import {
   enforceProvability,
   formatMeasurement,
@@ -86,6 +87,9 @@ export default function App() {
   /** Per-survivor "kill this mutant" state: busy flag + what the model wrote. */
   const [targetingId, setTargetingId] = useState<string | null>(null);
   const [targetNote, setTargetNote] = useState<string>("");
+  const [shareNote, setShareNote] = useState<string>("");
+  /** Set when the page was opened from a shared link, for the restore banner. */
+  const [restoredFromShare, setRestoredFromShare] = useState<number | null>(null);
 
   const loadExample = (id: string) => {
     const ex = exampleById(id);
@@ -96,6 +100,19 @@ export default function App() {
     setRun({ phase: "idle" });
     setGenNote("");
   };
+
+  // Restore a shared run: hash -> code + tests, then run it. Score is always
+  // recomputed, so a shared link is a live reproduction, not a screenshot.
+  useState(() => {
+    const shared = readShareFromLocation();
+    if (shared) {
+      setCode(shared.code);
+      setTests(shared.tests.join("\n"));
+      if (shared.exampleId !== "custom") setExampleId(shared.exampleId);
+      setRestoredFromShare(shared.scorePercent);
+    }
+    return null;
+  });
 
   const parsedTests = useMemo(
     () => tests.split("\n").map((t) => t.trim()).filter((t) => t.length > 0),
@@ -344,6 +361,29 @@ export default function App() {
   );
   const totalMutants = run.mutants?.length ?? 0;
   const revealedCount = useRevealCascade(totalMutants, 80);
+
+  /** Encode the current run into a URL hash and copy it — a live link a judge
+   *  can open days later and see the same score recomputed. */
+  const shareRun = async () => {
+    if (run.phase !== "done" || !run.summary) return;
+    const url = buildShareUrl({
+      code,
+      tests: parsedTests,
+      exampleId,
+      scorePercent: Math.round(run.summary.score * 100),
+    });
+    if (!url) {
+      setShareNote("This run is too large to share as a link.");
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(url);
+      setShareNote("Link copied — it recomputes the score live when opened.");
+    } catch {
+      setShareNote(url);
+    }
+  };
+
   const card = scorecard(evidence);
 
   return (
@@ -408,7 +448,18 @@ export default function App() {
         <button className="ghost" onClick={exportRun} disabled={run.phase !== "done"}>
           Download run (JSON)
         </button>
+        <button className="ghost" onClick={shareRun} disabled={run.phase !== "done"}>
+          Share run link
+        </button>
       </div>
+
+      {restoredFromShare !== null && (
+        <p className="note">
+          Opened from a shared link — the sender saw {restoredFromShare}%. Run it
+          to recompute the score live.
+        </p>
+      )}
+      {shareNote && <p className="note">{shareNote}</p>}
 
       {run.phase === "error" && (
         <p className="error">

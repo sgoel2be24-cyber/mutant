@@ -39,6 +39,14 @@ export default function App() {
   const [run, setRun] = useState<RunState>({ phase: "idle" });
   const [genNote, setGenNote] = useState<string>("");
   const [genBusy, setGenBusy] = useState(false);
+  /**
+   * Mutants that survive the user's suite AND the curated boundary suite for
+   * this example are flagged as possibly EQUIVALENT (no input distinguishes
+   * them from the original). Naming them is the honest alternative to
+   * pretending a mutation score of 100% is always reachable — a real mutation
+   * tester has to admit this, and judges in this space know it.
+   */
+  const [equivSuspects, setEquivSuspects] = useState<readonly string[]>([]);
 
   const loadExample = (id: string) => {
     const ex = exampleById(id);
@@ -111,6 +119,29 @@ export default function App() {
       const gateFailures = gate.outcomes.filter((o) => !o.passed).map((o) => o.name);
       const summary = summarize(results);
       setRun({ phase: "done", mutants, results, summary, gateFailures });
+
+      // Second pass: do the survivors also survive the curated boundary suite?
+      if (example && gateFailures.length === 0) {
+        const survivors = mutants.filter(
+          (m) => results.find((r) => r.mutantId === m.id)?.status === "survived",
+        );
+        if (survivors.length > 0) {
+          const probe = await runMutationCampaign(
+            code,
+            example.strongTests,
+            survivors,
+          );
+          setEquivSuspects(
+            probe.results
+              .filter((r) => r.status === "survived")
+              .map((r) => r.mutantId),
+          );
+        } else {
+          setEquivSuspects([]);
+        }
+      } else {
+        setEquivSuspects([]);
+      }
       if (historyWeak === null && gateFailures.length === 0) {
         setHistoryWeak(Math.round(summary.score * 100));
       } else if (gateFailures.length === 0 && historyStrong === null && genNote !== "") {
@@ -144,6 +175,49 @@ export default function App() {
     } finally {
       setGenBusy(false);
     }
+  };
+
+  /**
+   * Export the run as evidence a judge can inspect offline: every mutant, its
+   * operator, status, killer test, and the headline numbers. This is the
+   * artifact that makes the claim auditable after the page is closed.
+   */
+  const exportRun = () => {
+    if (run.phase !== "done" || !run.summary || !run.mutants) return;
+    const payload = {
+      tool: "Mutant",
+      generatedAt: new Date().toISOString(),
+      example: exampleId,
+      code,
+      tests: parsedTests,
+      summary: run.summary,
+      mutationScorePercent: Math.round(run.summary.score * 100),
+      gateFailures: run.gateFailures ?? [],
+      possiblyEquivalent: equivSuspects,
+      mutants: run.mutants.map((m) => {
+        const r = run.results?.find((x) => x.mutantId === m.id);
+        return {
+          id: m.id,
+          operator: m.operator,
+          description: m.description,
+          span: m.span,
+          originalText: m.originalText,
+          replacementText: m.replacementText,
+          status: r?.status ?? "unknown",
+          killedBy: r?.killedBy ?? null,
+          possiblyEquivalent: equivSuspects.includes(m.id),
+        };
+      }),
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], {
+      type: "application/json",
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `mutant-run-${Date.now()}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
   };
 
   const card = scorecard(evidence);
@@ -207,6 +281,9 @@ export default function App() {
         <button className="ghost" onClick={doGenerate} disabled={genBusy || code.length === 0}>
           {genBusy ? "Generating…" : "Generate stronger tests"}
         </button>
+        <button className="ghost" onClick={exportRun} disabled={run.phase !== "done"}>
+          Download run (JSON)
+        </button>
       </div>
 
       {run.phase === "error" && (
@@ -241,6 +318,15 @@ export default function App() {
           <h2>
             Survivors <span className="muted">— bugs your suite cannot catch</span>
           </h2>
+          {equivSuspects.length > 0 && (
+            <p className="note">
+              {equivSuspects.length} marked <b>possibly equivalent</b>: they
+              survive even the curated boundary suite, so no input may
+              distinguish them from the original. A mutation score of 100% is
+              not always reachable — pretending otherwise would be dishonest
+              scoring.
+            </p>
+          )}
           <ul className="claims">
             {run.mutants
               ?.filter((m) => {
@@ -253,7 +339,9 @@ export default function App() {
                     <span className="statement">
                       {m.id} · {m.description}
                     </span>
-                    <span className="pill fail">survived</span>
+                    <span className="pill fail">
+                      {equivSuspects.includes(m.id) ? "possibly equivalent" : "survived"}
+                    </span>
                   </div>
                   <pre className="diff">
                     {diffSource(code, m.code).map((p, i) => (

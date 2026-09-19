@@ -21,7 +21,7 @@ This is not hypothetical. In the demo's own example, a GST slab calculator with 
 - **Runs every mutant against your tests, sandboxed.** Each run gets a disposable Web Worker with a hard timeout. Nothing your code does can freeze the page.
 - **Shows survivors as diffs.** A surviving mutant is a bug your tests cannot see. You get the exact one-character change and the line it happened on.
 - **Attributes every kill to the test that caught it.** Not just a score — the causal link between a specific test and a specific bug class.
-- **Refuses to score broken tests.** A test that fails on the *original* code is excluded and reported. A test that fails before any mutation proves nothing about mutants.
+- **Refuses to score broken tests, and means it.** Tests that fail on the *original* code are removed from the scoring run entirely — not merely flagged — and the UI says how many were excluded and how many were kept. A test that fails before any mutation proves nothing about mutants. If *none* of your tests pass on the original, the app refuses to publish a score at all rather than showing a meaningless 0%.
 - **Flags possibly-equivalent mutants.** Some mutants cannot be killed by any input. Mutant says so instead of pretending 100% is always reachable.
 - **Exports the whole run as JSON.** Every mutant, operator, status, killer test and headline number — auditable after the page is closed.
 
@@ -29,7 +29,11 @@ This is not hypothetical. In the demo's own example, a GST slab calculator with 
 
 The mechanism is ours. `src/lib/mutate.ts` is a hand-written AST mutation engine built on acorn: it walks the parse tree, identifies mutation sites, and splices the source **at the exact operator token or literal** — never across a whole expression, so every mutant is guaranteed to remain syntactically valid JavaScript.
 
-That guarantee is load-bearing, and it is *tested*: `mutate.test.ts` re-parses every mutant the engine produces and asserts it compiles, asserts each mutant differs from the original at exactly its declared span, and asserts a mutant that does not change the source is rejected (dropping a guard whose test is already `true` is not a mutation).
+That guarantee is load-bearing, and the engine now **enforces** it rather than assuming it: `mutate()` re-parses every candidate mutant before handing it out. A splice that would produce invalid JavaScript is first repaired by re-emitting the operands parenthesised with one operator flipped (`a + -5` → `(a - -5)`), and dropped if even that fails.
+
+This matters more than it looks. A minimal operator splice is unsafe in a real case: flipping `+` in `a + -5` yields `a--5`, because the unary minus on the right operand fuses with the operator into a different token. Left unhandled, an invalid mutant is *worse than a missing one* — the sandbox's parse throws, every test "fails", and the mutant is scored as a kill, silently **inflating** the score in a tool whose entire promise is honest scoring. The engine now reports how many candidates it repaired or discarded, and that accounting is visible on screen and in the export.
+
+`mutate.test.ts` proves it: every mutant re-parses across a hostile 15-case corpus (unary signs, optional chaining, template strings, comments between operators, classes, arrows), the negative-literal regression is pinned, and a mutant that does not change the source is rejected (dropping a guard whose test is already `true` is not a mutation).
 
 The LLM writes test expressions. It does not generate mutants, does not decide the score, and does not verify anything. Strip the model out entirely and the product still works end to end on curated examples — which is also the resilience story: the deployed demo has no hard dependency on an API key, so it still works the way a judge finds it days later.
 
@@ -43,7 +47,8 @@ Every number below came from a real run on the live deployment.
 | Better tests measurably close the gap | same example after the model wrote 8 boundary tests: **35% → 100%**, 17/17 killed | *Generate stronger tests* (re-scores automatically) |
 | The engine works on arbitrary code, not just curated input | pasted `shippingCost()` function: **67%** (8 killed, 4 survived / 12) | paste any function + one test |
 | Some mutants are unkillable | latefee example: **2 of 8** survivors flagged *possibly equivalent* | load *Library late fee* → *Run* |
-| The engine's output is valid JavaScript | **62/62** tests pass, including "every mutant re-parses" across 5 code shapes | `pnpm test` |
+| The engine's output is valid JavaScript | the engine re-parses and repairs/drops every candidate; **77/77** tests pass, including a 15-case hostile corpus | `pnpm test` |
+| The validation gate actually excludes broken tests | a failing test is removed from scoring and reported: "1 test(s) fail on the ORIGINAL code and were EXCLUDED from scoring (1 kept)" | add a deliberately wrong test, run |
 
 ## How it works
 
@@ -86,7 +91,8 @@ The engine tests are the interesting ones: they prove mutants are valid, precise
 - **Not every survivor is a real bug.** Some mutants are semantically equivalent to the original. Mutant flags the ones it can detect via the curated suite rather than silently counting them as defeats.
 - **Single function, one screen.** Multi-file projects and module resolution aren't handled.
 - **The sandbox is a Web Worker, not a security boundary.** It isolates crashes, hangs and globals; it is not designed to run adversarial code you didn't paste yourself.
-- **The rate limiter is per-instance and in-memory.** It caps abuse of the generation endpoint, not a hostile actor with a botnet.
+- **The rate limiter is best-effort, and labelled as such.** It keys on the platform-set `x-real-ip` and falls back to the *last* `x-forwarded-for` entry (a client can prepend entries to that header, so the tail is the trustworthy end). On top of the per-IP bucket there is a global hourly ceiling, which bounds total cost even if the identifier is spoofed. It is a quota guard, not a security control.
+- **`kimi-k2p6` is a reasoning model, which nearly broke generation silently.** At a 700-token cap it spent the entire budget reasoning and returned *empty* content. The cap is 2500 and the handler falls back to `reasoning_content` when `content` is blank. Worth recording: the first failure looked like a parsing bug, not a model-configuration bug.
 - **One LLM call sharpens tests; it is not required.** The generation endpoint needs a key; everything else is keyless and offline-capable by design.
 
 ## Scalability & future work
@@ -99,6 +105,18 @@ The engine tests are the interesting ones: they prove mutants are valid, precise
 ## Built with
 
 TypeScript, React 19, Vite 8, acorn (AST parsing), Vitest (62 tests), pnpm, Vercel (static + one serverless function). No mutation-testing library is used — the engine is the point of the project.
+
+## Hardened by an adversarial audit
+
+Before submission this project was handed to a different model (Kimi K3 XHigh) for an independent adversarial read of the engine, the runner, the serverless function and every documented claim. It found three real defects and several smaller ones — all fixed here, because a correctness bug inside a correctness tool invalidates every other criterion. The audit trail is in `AUDIT.md`.
+
+- **Invalid mutants could inflate the score.** Fixed by the re-parse/repair/drop guarantee above.
+- **The validation gate was reported, not enforced.** Broken tests were banner-reported but still scored. The runner now removes them from the scoring run and reports both counts.
+- **An unparseable mutant was counted as a kill.** Syntax-level failures in the sandbox are now a distinct `invalid` status, excluded from both the numerator and the denominator.
+- **The rate limiter trusted a client-controlled header.** Now uses the platform IP with a global ceiling as backstop.
+- Small: per-mutant timings were hardcoded to `0` in the export (now measured), and 11 survivor cards were a long mobile scroll (now collapsed to 5 with an expander).
+
+The audit's own first-60-seconds attack — "show me a negative number" — is now a pinned regression test.
 
 ## Provenance
 

@@ -86,3 +86,30 @@ because a correctness bug in a correctness tool is fatal to every other criterio
 1. Fix the negative-literal span bug + drop unparseable mutants (findings 1 & 3 together).
 2. Actually enforce the validation gate (finding 2).
 3. Fix the rate-limit IP source (finding 4) and drop `durationMs` from the export (finding 6).
+
+
+---
+
+# RESOLUTION (Deepseek V4p1 Flash Ultra, 19 Sep 2026 ~21:10 IST)
+
+All three blockers and both majors are fixed, verified in tests and re-verified on the
+live deployment. Two minors were fixed; the third did not reproduce.
+
+| # | Severity | Finding | Status |
+|---|---|---|---|
+| 1 | BLOCKER | `a + -5` -> invalid `a--5` | FIXED — `mutate()` re-parses every candidate; unsafe splices repaired as `(a - -5)`, else dropped. Regression test added. |
+| 2 | BLOCKER | Gate reported but not enforced | FIXED — failing tests removed from the scoring run; UI reports excluded vs kept; refuses to score when nothing passes. |
+| 3 | BLOCKER | Unparseable mutant counted as a kill | FIXED — new `invalid` status, excluded from numerator and denominator; worker distinguishes SyntaxError from assertion failure. |
+| 4 | MAJOR | `x-forwarded-for` client-spoofable | FIXED — prefers platform `x-real-ip`, else the LAST XFF entry; global hourly ceiling added as backstop; unit tests prove a prepend-only spoof yields the same identity. |
+| 5 | MAJOR | Docs omitted the reasoning-model/token failure | FIXED — README now documents the empty-content-at-700-tokens failure and the `reasoning_content` fallback. |
+| 6 | MAJOR | `durationMs: 0` hardcoded | FIXED — per-mutant and whole-campaign timings are now measured. |
+| 7 | MINOR | Long survivor scroll on mobile | FIXED — first 5 survivors shown, with a "Show all N" expander. |
+| 8 | MINOR | 0->N delta rendering | DID NOT REPRODUCE — `percentDelta` returns null for a zero baseline, so no delta renders ("0 -> 11", no percentage). Left as is. |
+
+Test count went 62 -> 77 (engine validity corpus, gate enforcement, invalid-exclusion,
+proxy IP resolution, key normalisation).
+
+Post-fix live verification (in-browser, production deployment):
+- Negative-literal case: 3 mutants, 0 invalid, no dropped, 100% — the audit attack no longer reproduces.
+- Gate case: "1 test(s) fail on the ORIGINAL code and were EXCLUDED from scoring (1 kept)".
+- Headline loop unchanged: GST 35% -> 100%; latefee 53% with 2 mutants flagged possibly equivalent.

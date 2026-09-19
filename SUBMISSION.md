@@ -26,7 +26,9 @@ Then it closes the loop: it generates stronger boundary tests and re-runs, provi
 
 The mutation engine is written from scratch: it parses code to an AST and splices source at exact operator spans, so every mutant is guaranteed to be valid JavaScript, and every mutant is re-parsed in the test suite to prove it. The scoring is honest — tests that fail on the original code are excluded rather than quietly counted as kills, and mutants that no input can distinguish are labelled "possibly equivalent" instead of inflating the score.
 
-The whole thing runs client-side: no code leaves the browser, no account, no setup. Everything is measurable, and the run exports as JSON for auditing.
+Two guarantees are enforced rather than assumed. Every generated mutant is re-parsed before it is used: an operator flip that would produce invalid JavaScript — flipping `+` in `a + -5` naively yields `a--5` — is repaired into a valid form or discarded, because an unparseable mutant would be scored as a "kill" and silently inflate the score. And tests that fail on the original code are removed from scoring entirely, not just flagged; if none of your tests pass on the original, the app refuses to publish a score instead of showing a meaningless zero.
+
+The whole thing runs client-side: no code leaves the browser, no account, no setup. Everything is measurable, and the run exports as JSON for auditing. Before submission the project was put through an independent adversarial audit by a different model, which found three real correctness defects in the engine and runner; all are fixed, pinned by regression tests, and recorded in AUDIT.md.
 
 ## PPT
 

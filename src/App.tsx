@@ -80,6 +80,8 @@ export default function App() {
    * tester has to admit this, and judges in this space know it.
    */
   const [equivSuspects, setEquivSuspects] = useState<readonly string[]>([]);
+  /** Survivors shown before the list is expanded (mobile-friendly default). */
+  const [showAllSurvivors, setShowAllSurvivors] = useState(false);
 
   const loadExample = (id: string) => {
     const ex = exampleById(id);
@@ -134,6 +136,7 @@ export default function App() {
 
   const doRun = async (testsOverride?: readonly string[]) => {
     const useTests = testsOverride ?? parsedTests;
+    setShowAllSurvivors(false);
     setRun({ phase: "running" });
     try {
       const report = mutateReport(code, { seed: 1 });
@@ -394,6 +397,7 @@ export default function App() {
                 const r = run.results?.find((x) => x.mutantId === m.id);
                 return r?.status === "survived";
               })
+              .filter((_, i) => showAllSurvivors || i < 5)
               .map((m) => (
                 <li key={m.id} className="claim fail">
                   <div className="top">
@@ -426,6 +430,13 @@ export default function App() {
               </li>
             )}
           </ul>
+          {run.summary.survived > 5 && !showAllSurvivors && (
+            <div className="row">
+              <button className="chip" onClick={() => setShowAllSurvivors(true)}>
+                Show all {run.summary.survived} survivors
+              </button>
+            </div>
+          )}
 
           <h2>
             Kills <span className="muted">— and the test that caught each one</span>

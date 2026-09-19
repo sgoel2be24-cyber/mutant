@@ -188,7 +188,17 @@ export default async function handler(
     );
 
     if (!upstream.ok) {
-      send(res, 502, { error: `upstream ${upstream.status}` });
+      // Include the upstream reason so a misconfigured key is diagnosable
+      // instead of surfacing as a bare status code. Fireworks error bodies
+      // never echo the credential.
+      let detail = "";
+      try {
+        const text = await upstream.text();
+        detail = text.slice(0, 240).replace(/\s+/g, " ");
+      } catch {
+        detail = "(no body)";
+      }
+      send(res, 502, { error: `upstream ${upstream.status}`, detail });
       return;
     }
     const data: unknown = await upstream.json();

@@ -103,8 +103,20 @@ export interface Baseline {
 }
 
 /** The baseline that applies to `code`, or null when none was measured for it. */
-export function baselineFor(baseline: Baseline | null, code: string): Baseline | null {
-  return baseline !== null && baseline.code === code ? baseline : null;
+export function baselineFor(baselines: readonly Baseline[], code: string): Baseline | null {
+  return baselines.find((b) => b.code === code) ?? null;
+}
+
+/**
+ * Record a run as the baseline for its code — only if that code has none yet.
+ * Idempotent and order-safe: a later (e.g. post-generation) run can never
+ * replace the first measurement, even if both land in the same render.
+ */
+export function recordBaseline(
+  baselines: readonly Baseline[],
+  candidate: Baseline,
+): readonly Baseline[] {
+  return baselineFor(baselines, candidate.code) ? baselines : [...baselines, candidate];
 }
 
 /**

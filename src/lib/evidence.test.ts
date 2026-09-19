@@ -7,6 +7,7 @@ import {
   scorecard,
   baselineFor,
   claimStrong,
+  recordBaseline,
   type Artifact,
   type Claim,
   type EvidenceReport,
@@ -132,9 +133,21 @@ describe("claimStrong / baselineFor — a baseline never transfers across code",
   const gst = { code: "function gst(){}", score: 35, survivors: 11, total: 17 };
 
   it("does not apply a baseline measured on different code", () => {
-    expect(baselineFor(gst, "function lateFee(){}")).toBeNull();
-    expect(baselineFor(gst, gst.code)).toBe(gst);
-    expect(baselineFor(null, gst.code)).toBeNull();
+    expect(baselineFor([gst], "function lateFee(){}")).toBeNull();
+    expect(baselineFor([gst], gst.code)).toBe(gst);
+    expect(baselineFor([], gst.code)).toBeNull();
+  });
+
+  it("regression: a later run never replaces the first baseline for the same code", () => {
+    const after = recordBaseline([gst], { ...gst, score: 100, survivors: 0 });
+    expect(baselineFor(after, gst.code)?.score).toBe(35);
+  });
+
+  it("keeps each example's baseline when switching away and back", () => {
+    const late = { code: "function lateFee(){}", score: 53, survivors: 8, total: 17 };
+    const both = recordBaseline(recordBaseline([], gst), late);
+    expect(baselineFor(both, gst.code)?.score).toBe(35);
+    expect(baselineFor(both, late.code)?.score).toBe(53);
   });
 
   it("regression: switching examples (35% -> 53%) is NOT a generated improvement", () => {

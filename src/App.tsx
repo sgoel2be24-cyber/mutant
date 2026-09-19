@@ -12,6 +12,7 @@ import {
   baselineFor,
   claimStrong,
   enforceProvability,
+  recordBaseline,
   formatMeasurement,
   scorecard,
   type Baseline,
@@ -114,9 +115,9 @@ export default function App() {
    * written" must describe that state, not whatever the latest run shows.
    * Otherwise the claim keeps asserting weakness after the score has risen.
    */
-  const [baselineState, setBaseline] = useState<Baseline | null>(null);
+  const [baselines, setBaselines] = useState<readonly Baseline[]>([]);
   /** Never compare against a baseline measured on different code. */
-  const baseline = baselineFor(baselineState, code);
+  const baseline = baselineFor(baselines, code);
   /** True once model-written tests were added for the current code. */
   const [generated, setGenerated] = useState(false);
   const sessionScores = history.filter((h) => h.code === code).map((h) => h.score);
@@ -191,6 +192,20 @@ export default function App() {
         durationMs: campaign.durationMs,
       });
 
+      // Record the baseline BEFORE the slower equivalence probe, and through an
+      // updater, so a quick Generate click can never become the baseline.
+      if (campaign.gateFailures.length === 0) {
+        setBaselines((bs) =>
+          recordBaseline(bs, {
+            code,
+            score: Math.round(summary.score * 100),
+            survivors: summary.survived,
+            total: summary.total,
+          }),
+        );
+      }
+      setHistory((h) => [...h, { code, score: Math.round(summary.score * 100) }]);
+
       // Second pass: do the survivors also survive the curated boundary suite?
       // Only meaningful on the example's own code — the curated suite says
       // nothing about an edited function.
@@ -221,15 +236,6 @@ export default function App() {
       } else {
         setEquivSuspects([]);
       }
-      if (baseline === null && campaign.gateFailures.length === 0) {
-        setBaseline({
-          code,
-          score: Math.round(summary.score * 100),
-          survivors: summary.survived,
-          total: summary.total,
-        });
-      }
-      setHistory((h) => [...h, { code, score: Math.round(summary.score * 100) }]);
     } catch (e) {
       setRun({
         phase: "error",

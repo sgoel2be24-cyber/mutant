@@ -96,6 +96,22 @@ export function extractTests(content: string): string[] {
   return [];
 }
 
+/**
+ * Defensive normalisation. A key pasted through a shell or UI commonly arrives
+ * with a trailing newline, surrounding whitespace, or a literal pair of quotes
+ * — all of which make an otherwise valid credential fail. Strip them here so a
+ * paste artifact never masquerades as a bad key.
+ */
+export function normalizeKey(raw: string | undefined): string {
+  if (!raw) return "";
+  let k = raw.trim();
+  const quoted =
+    (k.startsWith("'") && k.endsWith("'")) ||
+    (k.startsWith('"') && k.endsWith('"'));
+  if (quoted && k.length > 1) k = k.slice(1, -1).trim();
+  return k.replace(/[\r\n\t]/g, "");
+}
+
 const SYSTEM = [
   "You write JavaScript test expressions for a function under test.",
   "Each test is ONE boolean expression, self-contained, calling the function",
@@ -124,7 +140,7 @@ export default async function handler(
     return;
   }
 
-  const key = process.env.FIREWORKS_API_KEY;
+  const key = normalizeKey(process.env.FIREWORKS_API_KEY);
   if (!key) {
     send(res, 503, { error: "generation unavailable (no key configured)" });
     return;

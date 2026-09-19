@@ -1,0 +1,54 @@
+import { describe, expect, it } from "vitest";
+import {
+  decodeResponse,
+  encodeRequest,
+  summarize,
+  type MutantResult,
+} from "./runner";
+
+describe("summarize (Stryker-style scoring)", () => {
+  it("counts killed + timeout as kills; survivors dilute the score", () => {
+    const results: MutantResult[] = [
+      { mutantId: "M001", status: "killed", killedBy: "t1", durationMs: 1 },
+      { mutantId: "M002", status: "timeout", durationMs: 2500 },
+      { mutantId: "M003", status: "survived", durationMs: 1 },
+      { mutantId: "M004", status: "killed", killedBy: "t2", durationMs: 1 },
+      { mutantId: "M005", status: "survived", durationMs: 1 },
+      { mutantId: "M006", status: "survived", durationMs: 1 },
+    ];
+    expect(summarize(results)).toEqual({
+      total: 6,
+      killed: 2,
+      survived: 3,
+      timeout: 1,
+      // (2 killed + 1 timeout) / 6 = 50%
+      score: 0.5,
+    });
+  });
+
+  it("reports 0, not NaN, on an empty run", () => {
+    expect(summarize([])).toEqual({ total: 0, killed: 0, survived: 0, timeout: 0, score: 0 });
+  });
+
+  it("a perfect suite scores 1", () => {
+    const results: MutantResult[] = [
+      { mutantId: "M001", status: "killed", killedBy: "t1", durationMs: 1 },
+      { mutantId: "M002", status: "timeout", durationMs: 2500 },
+    ];
+    expect(summarize(results).score).toBe(1);
+  });
+});
+
+describe("worker protocol", () => {
+  it("round-trips a run request", () => {
+    const req = { kind: "run" as const, runId: 3, code: "function f(){}", tests: ["f() === 1"] };
+    expect(decodeResponse(JSON.stringify({ kind: "result", runId: 3, suiteRun: { code: "function f(){}", tests: ["f() === 1"], outcomes: [], allPassed: true } }))).toBeTruthy();
+    expect(encodeRequest(req)).toBe(JSON.stringify(req));
+  });
+
+  it("rejects malformed responses instead of trusting them", () => {
+    expect(() => decodeResponse("{}")).toThrow();
+    expect(() => decodeResponse(JSON.stringify({ kind: "nope", runId: 1 }))).toThrow();
+    expect(() => decodeResponse(JSON.stringify({ kind: "result" }))).toThrow();
+  });
+});

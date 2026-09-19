@@ -113,3 +113,22 @@ Post-fix live verification (in-browser, production deployment):
 - Negative-literal case: 3 mutants, 0 invalid, no dropped, 100% — the audit attack no longer reproduces.
 - Gate case: "1 test(s) fail on the ORIGINAL code and were EXCLUDED from scoring (1 kept)".
 - Headline loop unchanged: GST 35% -> 100%; latefee 53% with 2 mutants flagged possibly equivalent.
+
+---
+
+# FINAL PASS (20 Sep 2026, pre-submission)
+
+A final end-to-end pass on the live deployment found one more honesty bug in the
+evidence spine, plus three smaller issues. All are fixed, pinned by tests, and
+re-verified in production with the real model.
+
+| # | Severity | Finding | Status |
+|---|---|---|---|
+| 9 | BLOCKER | Evidence baseline was global, not per-function: run GST (35%), switch to latefee, run (53%) and the page showed **"2/2 proven — Generated boundary tests raised the score from 35% to 53%"** with no generation at all. The history ribbon mixed examples the same way. | FIXED — one baseline per exact source (`baselineFor` / `recordBaseline`); the improvement claim requires same code + tests actually generated + a real rise; the ribbon only compares runs of the same code. |
+| 10 | MAJOR | Baseline was recorded after the slower equivalence probe, with a stale-closure check, so a quick Generate click could make the post-generation 100% the baseline ("already killed all 17"). | FIXED — recorded through an order-safe updater, before the probe. |
+| 11 | MAJOR | Gate matched tests by 80-char truncated display name; two long tests sharing a prefix could let a test that fails on the original into scoring, where it "kills" every mutant. | FIXED — `selectScoredTests` keeps tests by position. |
+| 12 | MINOR | Equivalence probe ran the curated suite against user-edited code (and an all-excluded suite "passes" every mutant, flagging all as equivalent). | FIXED — probe runs only on the example's own code, and flags nothing if any curated test fails the gate. |
+| 13 | MINOR | Offline-fallback note always blamed a missing API key, whatever the real failure (e.g. 429). | FIXED — states the actual reason. |
+
+Test count 102 -> 110. Live verification: GST 35% -> latefee 53% (no claim) -> back to
+GST, Generate: "raised from 35% to 100%", 2/2 proven, with 8 model-written tests.

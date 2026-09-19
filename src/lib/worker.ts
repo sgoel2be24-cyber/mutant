@@ -1,4 +1,5 @@
 /// <reference lib="webworker" />
+import { stripTypes } from "./stripTypes";
 /**
  * Disposable sandbox worker. Receives one request per mutant (or the original
  * code, for the validation gate), evaluates code + tests inside a fresh
@@ -33,6 +34,19 @@ declare const self: DedicatedWorkerGlobalScope;
  * kill/survive verdict is the entire product.
  */
 function runSuite(code: string, tests: string[]): TestOutcome[] {
+  // TypeScript is stripped to runtime JS before evaluation — `new Function`
+  // only understands JS, and the engine now accepts typed input.
+  let js = code;
+  try {
+    js = stripTypes(code);
+  } catch (e) {
+    return tests.map((t) => ({
+      name: t.length > 80 ? t.slice(0, 77) + "..." : t,
+      passed: false,
+      error: e instanceof Error ? e.message : String(e),
+      syntaxError: true,
+    }));
+  }
   const outcomes: TestOutcome[] = [];
   for (const test of tests) {
     const name = test.length > 80 ? test.slice(0, 77) + "..." : test;
@@ -44,7 +58,7 @@ function runSuite(code: string, tests: string[]): TestOutcome[] {
       // the suite. Flag it so the caller can exclude it from scoring.
       fn = new Function(
         "\"use strict\";\n" +
-          code +
+          js +
           "\n;const result = (" + test + ");\n" +
           "return result;",
       ) as () => unknown;

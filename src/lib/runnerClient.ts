@@ -28,7 +28,7 @@ function truncateName(t: string, max: number): string {
 }
 
 /** Run the suite against one piece of code, with a hard timeout. */
-function runOnce(
+export function runOnce(
   code: string,
   tests: readonly string[],
   runId: number,

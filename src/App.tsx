@@ -1,10 +1,10 @@
 import { useMemo, useState } from "react";
 import { EXAMPLES, exampleById, type Example } from "./lib/samples";
 import { mutateReport, type Mutant } from "./lib/mutate";
-import { runMutationCampaign } from "./lib/runnerClient";
+import { runMutationCampaign, runOnce } from "./lib/runnerClient";
 import { summarize, type MutantResult, type ScoreSummary } from "./lib/runner";
 import { diffSource } from "./lib/diff";
-import { generateTests } from "./lib/generate";
+import { generateTests, generateTargetedTest } from "./lib/generate";
 import { useCountUp, useRevealCascade, useReducedMotion } from "./lib/hooks";
 import {
   enforceProvability,
@@ -83,6 +83,9 @@ export default function App() {
   const [equivSuspects, setEquivSuspects] = useState<readonly string[]>([]);
   /** Survivors shown before the list is expanded (mobile-friendly default). */
   const [showAllSurvivors, setShowAllSurvivors] = useState(false);
+  /** Per-survivor "kill this mutant" state: busy flag + what the model wrote. */
+  const [targetingId, setTargetingId] = useState<string | null>(null);
+  const [targetNote, setTargetNote] = useState<string>("");
 
   const loadExample = (id: string) => {
     const ex = exampleById(id);
@@ -240,6 +243,57 @@ export default function App() {
    * operator, status, killer test, and the headline numbers. This is the
    * artifact that makes the claim auditable after the page is closed.
    */
+
+  /**
+   * Targeted kill: ask the model for one test that distinguishes this survivor,
+   * verify it PASSES on the original code and FAILS on the mutant (a test that
+   * does not do both is useless), append it, and re-score. The score rises by
+   * exactly the mutants that test catches — a visible, causal improvement.
+   */
+  const killSurvivor = async (mutant: Mutant) => {
+    if (run.phase !== "done" || !run.mutants) return;
+    setTargetingId(mutant.id);
+    setTargetNote("");
+    try {
+      const { tests: newTests } = await generateTargetedTest(code, parsedTests, {
+        code: mutant.code,
+        description: mutant.description,
+      });
+      // Verify each candidate: pass on original AND fail on the mutant.
+      const original = await runOnce(code, newTests, 0, 2500);
+      const onMutant = await runOnce(mutant.code, newTests, 1, 2500);
+      const good: string[] = [];
+      for (let i = 0; i < newTests.length; i++) {
+        const o = original.outcomes[i];
+        const m = onMutant.outcomes[i];
+        if (o?.passed && m && !m.passed && !m.syntaxError) good.push(newTests[i]!);
+      }
+      if (good.length === 0) {
+        setTargetNote(
+          `The model's candidate for ${mutant.id} did not distinguish the mutant ` +
+            `(it either failed the original or also passed the mutant). Not added — ` +
+            `only verified tests are inserted.`,
+        );
+        setTargetingId(null);
+        return;
+      }
+      const merged = [...new Set([...parsedTests, ...good])];
+      setTests(merged.join("\n"));
+      setTargetNote(
+        `Added ${good.length} test(s) targeting ${mutant.id} — re-scoring. ` +
+          `Each was verified to pass on the original and fail on the mutant.`,
+      );
+      await doRun(merged);
+    } catch (e) {
+      setTargetNote(
+        `targeted generation unavailable: ${e instanceof Error ? e.message : "error"}. ` +
+          `The bulk Generate path still works.`,
+      );
+    } finally {
+      setTargetingId(null);
+    }
+  };
+
   const exportRun = () => {
     if (run.phase !== "done" || !run.summary || !run.mutants) return;
     const payload = {
@@ -386,6 +440,7 @@ export default function App() {
           </section>
 
           {genNote && <p className="note">{genNote}</p>}
+          {targetNote && <p className="note">{targetNote}</p>}
 
           <h2>
             Survivors <span className="muted">— bugs your suite cannot catch</span>
@@ -415,6 +470,15 @@ export default function App() {
                     <span className="pill fail">
                       {equivSuspects.includes(m.id) ? "possibly equivalent" : "survived"}
                     </span>
+                  </div>
+                  <div className="row">
+                    <button
+                      className="chip"
+                      onClick={() => killSurvivor(m)}
+                      disabled={targetingId !== null || run.phase !== "done"}
+                    >
+                      {targetingId === m.id ? "Targeting…" : "Kill this mutant"}
+                    </button>
                   </div>
                   <pre className="diff">
                     {diffSource(code, m.code).map((p, i) => (

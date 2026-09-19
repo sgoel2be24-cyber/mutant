@@ -158,6 +158,15 @@ const SYSTEM = [
   'Reply with ONLY a JSON object: {"tests": ["expr", ...]} with 6-10 tests.',
 ].join(" ");
 
+const SYSTEM_TARGETED = [
+  "You write ONE JavaScript test expression that kills a specific surviving mutant.",
+  "A mutant is the original code with one small change. Your test must evaluate",
+  "to TRUE on the ORIGINAL code and FALSE on the MUTANT, so it distinguishes them.",
+  "The test is one boolean expression, self-contained, calling the function by the",
+  "name defined in the original code. Only comparisons and arithmetic on literals.",
+  'Reply with ONLY a JSON object: {"tests": ["expr"]} — exactly one test.',
+].join(" ");
+
 export const config = { maxDuration: 30 };
 
 export default async function handler(
@@ -196,6 +205,13 @@ export default async function handler(
   const existing = Array.isArray(payload.existingTests)
     ? payload.existingTests.filter((t): t is string => typeof t === "string")
     : [];
+  // Optional targeted mode: the exact mutant that survived, so the model writes
+  // a test that would kill THAT one. Turned into a focused system prompt below.
+  const targetMutant =
+    typeof (payload as Record<string, unknown>)["targetMutant"] === "object" &&
+    (payload as Record<string, unknown>)["targetMutant"] !== null
+      ? ((payload as Record<string, unknown>)["targetMutant"] as Record<string, unknown>)
+      : undefined;
   if (code.length === 0) {
     send(res, 400, { error: "code required" });
     return;
@@ -221,17 +237,24 @@ export default async function handler(
           max_tokens: 2500,
           temperature: 0.2,
           messages: [
-            { role: "system", content: SYSTEM },
+            {
+              role: "system",
+              content: targetMutant ? SYSTEM_TARGETED : SYSTEM,
+            },
             {
               role: "user",
-              content:
-                `Function under test:\n\n${code}\n\n` +
-                (existing.length > 0
-                  ? `Existing tests (write NEW ones, do not repeat these):\n${existing
-                      .slice(0, 8)
-                      .join("\n")}\n\n`
-                  : "") +
-                'Return {"tests": [...]} now.',
+              content: targetMutant
+                ? `Original code:\n\n${code}\n\n` +
+                  `Surviving mutant (your test must FAIL on this):\n\n${String(targetMutant["code"] ?? "").slice(0, 4000)}\n\n` +
+                  `The change: ${String(targetMutant["description"] ?? "")}.\n\n` +
+                  'Return {"tests": ["expr"]} — one test that passes on the original and fails on the mutant.'
+                : `Function under test:\n\n${code}\n\n` +
+                  (existing.length > 0
+                    ? `Existing tests (write NEW ones, do not repeat these):\n${existing
+                        .slice(0, 8)
+                        .join("\n")}\n\n`
+                    : "") +
+                  'Return {"tests": [...]} now.',
             },
           ],
         }),

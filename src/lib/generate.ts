@@ -13,6 +13,12 @@ export interface GeneratedSuite {
   readonly note?: string;
 }
 
+/** One test aimed at a single surviving mutant. */
+export interface TargetedTest {
+  readonly tests: readonly string[];
+  readonly note?: string;
+}
+
 export async function generateTests(
   code: string,
   existingTests: readonly string[],
@@ -42,6 +48,28 @@ export async function generateTests(
     }
     throw e;
   }
+}
+
+/**
+ * Ask the model for a single test that kills ONE specific surviving mutant.
+ * The test must pass on the original and fail on the mutant, so it is checked
+ * against both before the UI accepts it.
+ */
+export async function generateTargetedTest(
+  code: string,
+  existingTests: readonly string[],
+  mutant: { code: string; description: string },
+): Promise<TargetedTest> {
+  const res = await fetch("/api/generate", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ code, existingTests, targetMutant: mutant }),
+  });
+  if (!res.ok) throw new Error(`targeted generate failed: ${res.status}`);
+  const data: unknown = await res.json();
+  const tests = parseTests(data);
+  if (tests.length === 0) throw new Error("no targeted test parsed");
+  return { tests };
 }
 
 /** Accept {tests:[...]} or {choices:[{message:{content}}]} JSON-ish payloads. */

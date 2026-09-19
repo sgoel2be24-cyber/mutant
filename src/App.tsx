@@ -31,6 +31,35 @@ interface RunState {
   error?: string;
 }
 
+/**
+ * The improvement claim is only rendered as proven when the numbers show an
+ * actual rise; otherwise it stays pending with no measurement attached.
+ */
+function claimStrong(
+  current: number,
+  baseline: { score: number; survivors: number; total: number },
+): Claim {
+  const base: Claim = {
+    id: "claim-strong",
+    statement: "Generated tests measurably improve the mutation score.",
+    state: "pending",
+    artifacts: [{ kind: "log", ref: "live run on this page" }],
+    demoStep: "beat 4 — score after Generate + re-Run",
+  };
+  if (current <= baseline.score) return base;
+  return {
+    ...base,
+    statement: `Generated boundary tests raised the mutation score from ${baseline.score}% to ${current}%.`,
+    state: "pass",
+    measurement: {
+      label: "mutation score, generated tests vs baseline",
+      before: baseline.score,
+      after: current,
+      unit: "%",
+    },
+  };
+}
+
 export default function App() {
   const [exampleId, setExampleId] = useState<string>(EXAMPLES[0]!.id);
   const example: Example | undefined = exampleById(exampleId);
@@ -63,50 +92,41 @@ export default function App() {
     [tests],
   );
 
-  // remembered for the evidence delta: first clean run = weak baseline,
-  // first clean run after generation = strong score.
-  const [historyWeak, setHistoryWeak] = useState<number | null>(null);
-  const [historyStrong, setHistoryStrong] = useState<number | null>(null);
+  /**
+   * The first clean run is the BASELINE — evidence claims about "the suite as
+   * written" must describe that state, not whatever the latest run shows.
+   * Otherwise the claim keeps asserting weakness after the score has risen.
+   */
+  const [baseline, setBaseline] = useState<
+    { score: number; survivors: number; total: number } | null
+  >(null);
+  const [generated, setGenerated] = useState(false);
 
   const evidence: EvidenceReport = useMemo(() => {
-    if (run.phase !== "done" || !run.summary) {
+    if (run.phase !== "done" || !run.summary || !baseline) {
       return { generatedAt: new Date(0).toISOString(), claims: [] };
     }
+    const current = Math.round(run.summary.score * 100);
     const claims: Claim[] = [
       {
         id: "claim-weak",
-        statement: `The suite as written leaves ${run.summary.survived} of ${run.summary.total} mutants alive — each one is a bug it cannot catch.`,
+        statement:
+          baseline.survivors === 0
+            ? `The suite as written already killed all ${baseline.total} mutants.`
+            : `The suite as written left ${baseline.survivors} of ${baseline.total} mutants alive — each was a bug it could not catch.`,
         state: "pass",
         measurement: {
-          label: "surviving mutants (ideal: 0)",
+          label: "surviving mutants at baseline (ideal: 0)",
           before: 0,
-          after: run.summary.survived,
+          after: baseline.survivors,
         },
         artifacts: [{ kind: "log", ref: "live run on this page" }],
-        demoStep: "beat 2 — survivor list after the first Run",
+        demoStep: "beat 2 — survivor list at baseline",
       },
-      {
-        id: "claim-strong",
-        statement: "Better tests measurably close the gap — the score rises after generation.",
-        state: historyStrong === null ? "pending" : "pass",
-        artifacts: [{ kind: "log", ref: "live run on this page" }],
-        demoStep: "beat 4 — the score after Generate + re-Run",
-      },
+      claimStrong(current, baseline),
     ];
-    if (historyStrong !== null) {
-      claims[1] = {
-        ...claims[1]!,
-        state: "pass",
-        measurement: {
-          label: "mutation score after generated tests",
-          before: historyWeak ?? 0,
-          after: historyStrong,
-          unit: "%",
-        },
-      };
-    }
     return enforceProvability({ generatedAt: new Date().toISOString(), claims });
-  }, [run.phase, run.summary, genNote, historyWeak, historyStrong]);
+  }, [run.phase, run.summary, baseline]);
 
   const doRun = async () => {
     setRun({ phase: "running" });
@@ -141,10 +161,12 @@ export default function App() {
       } else {
         setEquivSuspects([]);
       }
-      if (historyWeak === null && gateFailures.length === 0) {
-        setHistoryWeak(Math.round(summary.score * 100));
-      } else if (gateFailures.length === 0 && historyStrong === null && genNote !== "") {
-        setHistoryStrong(Math.round(summary.score * 100));
+      if (baseline === null && gateFailures.length === 0) {
+        setBaseline({
+          score: Math.round(summary.score * 100),
+          survivors: summary.survived,
+          total: summary.total,
+        });
       }
     } catch (e) {
       setRun({
@@ -161,6 +183,7 @@ export default function App() {
       const suite = await generateTests(code, parsedTests, example);
       const merged = [...new Set([...parsedTests, ...suite.tests])];
       setTests(merged.join("\n"));
+      setGenerated(true);
       setGenNote(
         suite.source === "llm"
           ? `${suite.tests.length} tests from the model — re-run to see the score.`
@@ -187,6 +210,7 @@ export default function App() {
       tool: "Mutant",
       generatedAt: new Date().toISOString(),
       example: exampleId,
+      testsSource: generated ? "seed + model-generated" : "seed only",
       code,
       tests: parsedTests,
       summary: run.summary,

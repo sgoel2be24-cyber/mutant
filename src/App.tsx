@@ -380,7 +380,7 @@ export default function App() {
   const reducedMotion = useReducedMotion();
   const displayedScore = useCountUp(
     run.phase === "done" && run.summary ? Math.round(run.summary.score * 100) : 0,
-    900,
+    1100,
   );
   const totalMutants = run.mutants?.length ?? 0;
   const revealedCount = useRevealCascade(totalMutants, 80);

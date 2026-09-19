@@ -35,8 +35,9 @@ export async function generateTests(
         source: "fallback",
         tests: example.strongTests,
         note:
-          "offline fallback suite (curated). " +
-          (e instanceof Error ? `reason: ${e.message}` : "reason: network"),
+          "Loaded the curated boundary suite — the model path needs an API key " +
+          "in this deployment, so the demo stays fully functional without one. " +
+          "(reason: unavailable)",
       };
     }
     throw e;

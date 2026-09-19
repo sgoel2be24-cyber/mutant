@@ -128,11 +128,12 @@ export default function App() {
     return enforceProvability({ generatedAt: new Date().toISOString(), claims });
   }, [run.phase, run.summary, baseline]);
 
-  const doRun = async () => {
+  const doRun = async (testsOverride?: readonly string[]) => {
+    const useTests = testsOverride ?? parsedTests;
     setRun({ phase: "running" });
     try {
       const mutants = mutate(code, { seed: 1 });
-      const { gate, results } = await runMutationCampaign(code, parsedTests, mutants, {
+      const { gate, results } = await runMutationCampaign(code, useTests, mutants, {
         onProgress: (done, total) => setRun((r) => ({ ...r, progress: { done, total } })),
       });
       const gateFailures = gate.outcomes.filter((o) => !o.passed).map((o) => o.name);
@@ -186,9 +187,12 @@ export default function App() {
       setGenerated(true);
       setGenNote(
         suite.source === "llm"
-          ? `${suite.tests.length} tests from the model — re-run to see the score.`
-          : (suite.note ?? "fallback suite loaded — re-run to see the score."),
+          ? `${suite.tests.length} tests added from the model — re-scoring now.`
+          : (suite.note ?? "curated suite loaded — re-scoring now."),
       );
+      // Re-score immediately: the number on screen must never be stale
+      // relative to the tests on screen.
+      await doRun(merged);
     } catch (e) {
       setGenNote(
         `generation unavailable: ${e instanceof Error ? e.message : "error"} — ` +
@@ -296,7 +300,7 @@ export default function App() {
       </section>
 
       <div className="row actions">
-        <button className="primary" onClick={doRun} disabled={run.phase === "running" || parsedTests.length === 0}>
+        <button className="primary" onClick={() => doRun()} disabled={run.phase === "running" || parsedTests.length === 0}>
           {run.phase === "running"
             ? `Running ${run.progress ? `${run.progress.done}/${run.progress.total}` : ""}…`
             : "Run mutation analysis"}

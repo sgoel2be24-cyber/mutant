@@ -7,6 +7,7 @@ import { diffSource } from "./lib/diff";
 import { generateTests, generateTargetedTest } from "./lib/generate";
 import { useCountUp, useRevealCascade, useReducedMotion } from "./lib/hooks";
 import { buildShareUrl, encodeShare, readShareFromLocation } from "./lib/share";
+import { explainSurvival } from "./lib/explain";
 import {
   enforceProvability,
   formatMeasurement,
@@ -91,6 +92,8 @@ export default function App() {
   const [badgeNote, setBadgeNote] = useState<string>("");
   /** Set when the page was opened from a shared link, for the restore banner. */
   const [restoredFromShare, setRestoredFromShare] = useState<number | null>(null);
+  /** Scores across this session, oldest -> newest, for the history ribbon. */
+  const [history, setHistory] = useState<readonly number[]>([]);
 
   const loadExample = (id: string) => {
     const ex = exampleById(id);
@@ -222,6 +225,7 @@ export default function App() {
           total: summary.total,
         });
       }
+      setHistory((h) => [...h, Math.round(summary.score * 100)]);
     } catch (e) {
       setRun({
         phase: "error",
@@ -548,9 +552,21 @@ export default function App() {
               {run.dropped ? ` · ${run.dropped} unsafe mutations discarded` : ""}
             </span>
             <span className="bar">
-              <i style={{ width: `${Math.round(run.summary.score * 100)}%` }} />
+              <i style={{ width: `${Math.round(displayedScore)}%` }} />
             </span>
           </section>
+
+          {history.length > 1 && (
+            <div className="history" aria-label="score history this session">
+              <span className="history-label">this session</span>
+              <span className="history-line">
+                {history.map((s, i) => (
+                  <span key={i} className={`tick ${i === history.length - 1 ? "now" : ""}`} style={{ height: `${8 + Math.round((s / 100) * 22)}px` }} title={`run ${i + 1}: ${s}%`} />
+                ))}
+              </span>
+              <span className="history-end">{history.join("% → ")}%</span>
+            </div>
+          )}
 
           {genNote && <p className="note">{genNote}</p>}
           {targetNote && <p className="note">{targetNote}</p>}
@@ -604,6 +620,7 @@ export default function App() {
                     <span className="sw del" /> original &nbsp;·&nbsp;{" "}
                     <span className="sw add" /> injected mutation
                   </div>
+                  <div className="artifacts">{explainSurvival(m, code)}</div>
                 </li>
               ))}
             {run.summary.survived === 0 && (

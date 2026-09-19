@@ -170,3 +170,11 @@ li.claim.pending-reveal { opacity: 0.35; }
   li.claim { transition: none; }
   .score .bar > i { transition: none; }
 }
+
+/* score history ribbon: the improvement is a trajectory, not two numbers */
+.history { display: flex; align-items: center; gap: 10px; margin: -12px 0 18px; font: 11.5px var(--mono); color: var(--muted); }
+.history-label { letter-spacing: 0.08em; text-transform: uppercase; }
+.history-line { display: flex; align-items: flex-end; gap: 3px; height: 32px; }
+.history-line .tick { width: 6px; background: var(--accent-dim); border-radius: 2px 2px 0 0; display: inline-block; }
+.history-line .tick.now { background: var(--accent); }
+.history-end { color: var(--fg); }

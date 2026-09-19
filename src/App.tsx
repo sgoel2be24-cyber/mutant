@@ -5,6 +5,7 @@ import { runMutationCampaign } from "./lib/runnerClient";
 import { summarize, type MutantResult, type ScoreSummary } from "./lib/runner";
 import { diffSource } from "./lib/diff";
 import { generateTests } from "./lib/generate";
+import { useCountUp, useRevealCascade, useReducedMotion } from "./lib/hooks";
 import {
   enforceProvability,
   formatMeasurement,
@@ -282,6 +283,13 @@ export default function App() {
     URL.revokeObjectURL(url);
   };
 
+  const reducedMotion = useReducedMotion();
+  const displayedScore = useCountUp(
+    run.phase === "done" && run.summary ? Math.round(run.summary.score * 100) : 0,
+    900,
+  );
+  const totalMutants = run.mutants?.length ?? 0;
+  const revealedCount = useRevealCascade(totalMutants, 80);
   const card = scorecard(evidence);
 
   return (
@@ -365,7 +373,7 @@ export default function App() {
       {run.phase === "done" && run.summary && (
         <>
           <section className="score" aria-label="mutation score">
-            <span className="num">{Math.round(run.summary.score * 100)}%</span>
+            <span className="num" aria-live="polite">{Math.round(displayedScore)}%</span>
             <span className="of">
               mutation score — {run.summary.killed + run.summary.timeout} killed ·{" "}
               {run.summary.survived} survived / {run.summary.total}
@@ -447,10 +455,14 @@ export default function App() {
                 const r = run.results?.find((x) => x.mutantId === m.id);
                 return r?.status === "killed" || r?.status === "timeout";
               })
-              .map((m) => {
+              .map((m, i) => {
                 const r = run.results?.find((x) => x.mutantId === m.id);
                 return (
-                  <li key={m.id} className="claim pass">
+                  <li
+                    key={m.id}
+                    className={`claim pass ${reducedMotion || i < revealedCount ? "" : "pending-reveal"}`}
+                    style={reducedMotion || i < revealedCount ? undefined : { opacity: 0.35 }}
+                  >
                     <div className="top">
                       <span className="statement">
                         {m.id} · {m.description}

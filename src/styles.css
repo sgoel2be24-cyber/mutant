@@ -160,3 +160,13 @@ pre.diff .del { color: var(--accent); background: #0f2b22; border-radius: 3px; t
 .legend .sw { width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
 .legend .sw.del { background: #0f2b22; border: 1px solid #1d5b47; }
 .legend .sw.add { background: #2a1414; border: 1px solid #6b2b2b; }
+
+/* kill/survive cascade: verdicts light up one at a time so the run reads as a
+   sequence, not a table. Opacity-only transition keeps it cheap and smooth. */
+li.claim { transition: opacity 240ms ease; }
+li.claim.pending-reveal { opacity: 0.35; }
+
+@media (prefers-reduced-motion: reduce) {
+  li.claim { transition: none; }
+  .score .bar > i { transition: none; }
+}

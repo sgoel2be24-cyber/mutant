@@ -41,23 +41,32 @@ export function useCountUp(target: number, durationMs = 900): number {
       fromRef.current = target;
       return;
     }
+    // Start from wherever the number is NOW, not from a stale target — a run
+    // that finishes while a previous climb is in flight must still animate.
     const from = fromRef.current;
     if (from === target) {
       setValue(target);
       return;
     }
+    fromRef.current = value;
+    const origin = value;
     const started = performance.now();
     const tick = (now: number) => {
       const t = Math.min(1, (now - started) / durationMs);
-      // ease-out: fast at first, settles at the end — reads as "climbing".
       const eased = 1 - Math.pow(1 - t, 3);
-      const current = from + (target - from) * eased;
+      const current = origin + (target - origin) * eased;
       setValue(current);
-      if (t < 1) rafRef.current = requestAnimationFrame(tick);
-      else fromRef.current = target;
+      if (t < 1) {
+        rafRef.current = requestAnimationFrame(tick);
+      } else {
+        fromRef.current = target;
+      }
     };
     rafRef.current = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(rafRef.current);
+    // `value` is read at animation start; including it would retrigger the
+    // effect every frame. It is intentionally the previous settled state.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [target, durationMs, reduced]);
 
   return reduced ? target : value;

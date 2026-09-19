@@ -1,0 +1,28 @@
+{
+  "name": "hackdevengers-2.0",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "description": "HackDevengers 2.0 (24h, Open Innovation) submission",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -p tsconfig.json && vite build",
+    "preview": "vite preview --port 4173 --strictPort",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "verify:serve": "python3 scripts/verify_serve.py"
+  },
+  "dependencies": {
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.1",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.1",
+    "vite": "^8.3.0"
+  }
+}

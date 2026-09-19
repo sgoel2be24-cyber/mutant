@@ -236,7 +236,10 @@ export default async function handler(
     }
     const tests = extractTests(content);
     if (tests.length === 0) {
-      send(res, 502, { error: "could not parse tests" });
+      send(res, 502, {
+        error: "could not parse tests",
+        detail: content.slice(0, 400).replace(/\s+/g, " "),
+      });
       return;
     }
     send(res, 200, { tests: tests.slice(0, 12) });

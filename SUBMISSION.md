@@ -22,7 +22,7 @@ Mutant answers it. Paste any JavaScript function and its tests, and Mutant rewri
 
 Any mutant your tests still pass is a bug your tests cannot find. Mutant shows each survivor as an exact diff, and attributes every kill to the specific test that caught it.
 
-Then it closes the loop: it generates stronger boundary tests and re-runs, proving the improvement as a number that moves. In the built-in GST slab example, a single passing happy-path test scores only 35% — 11 of 17 injected bugs go undetected. After generating boundary tests, the same function scores 100%.
+Then it closes the loop: it generates stronger boundary tests and re-runs, proving the improvement as a number that moves. In the built-in GST slab example, a single passing happy-path test scores only 35% — 11 of 17 injected bugs go undetected. After the model writes eight boundary tests — `gstRate(999)`, `gstRate(1000)`, `gstRate(5000)`, `gstRate(50001)` and the like — the same function scores 100%.
 
 The mutation engine is written from scratch: it parses code to an AST and splices source at exact operator spans, so every mutant is guaranteed to be valid JavaScript, and every mutant is re-parsed in the test suite to prove it. The scoring is honest — tests that fail on the original code are excluded rather than quietly counted as kills, and mutants that no input can distinguish are labelled "possibly equivalent" instead of inflating the score.
 

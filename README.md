@@ -40,7 +40,7 @@ Every number below came from a real run on the live deployment.
 | Claim | Measurement | How to reproduce |
 |---|---|---|
 | A passing suite can miss most bugs | GST example, seed suite: **35%** score, **11 of 17** mutants survive | open demo → *Run mutation analysis* |
-| Better tests measurably close the gap | same example after generation: **35% → 100%**, 17/17 killed | *Generate stronger tests* → *Run* |
+| Better tests measurably close the gap | same example after the model wrote 8 boundary tests: **35% → 100%**, 17/17 killed | *Generate stronger tests* (re-scores automatically) |
 | The engine works on arbitrary code, not just curated input | pasted `shippingCost()` function: **67%** (8 killed, 4 survived / 12) | paste any function + one test |
 | Some mutants are unkillable | latefee example: **2 of 8** survivors flagged *possibly equivalent* | load *Library late fee* → *Run* |
 | The engine's output is valid JavaScript | **62/62** tests pass, including "every mutant re-parses" across 5 code shapes | `pnpm test` |

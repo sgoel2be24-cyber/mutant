@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parse } from "acorn";
-import { mutate } from "./mutate";
+import { mutate, mutateReport } from "./mutate";
 
 /**
  * The engine's correctness contract:
@@ -149,6 +149,63 @@ describe("mutate — operator coverage", () => {
     for (const m of mutate(src, { seed: 1 })) {
       expect(m.span.end).toBeGreaterThan(m.span.start);
     }
+  });
+});
+
+describe("mutate — validity guarantee (audit regression)", () => {
+  it("keeps a negative literal valid instead of producing `a--5`", () => {
+    // The audit blocker: flipping `+` in `a + -5` must never yield `a--5`.
+    const mutants = mutate("function f(a) { return a + -5; }", { seed: 1 });
+    expect(mutants.length).toBeGreaterThan(0);
+    for (const m of mutants) {
+      expect(() => parse(m.code, { ecmaVersion: "latest" })).not.toThrow();
+      expect(m.code).not.toContain("--5");
+    }
+  });
+
+  it("repairs the unsafe splice rather than dropping the mutation", () => {
+    const report = mutateReport("function f(a) { return a + -5; }", { seed: 1 });
+    const flipped = report.mutants.find((m) => m.operator === "flip-operator");
+    expect(flipped).toBeDefined();
+    // The repair re-emits the operands parenthesised, so the flip survives.
+    expect(flipped!.code).toContain("(a - -5)");
+    expect(report.dropped).toBe(0);
+  });
+
+  it("never emits an unparseable mutant across a hostile syntactic corpus", () => {
+    const corpus = [
+      "function f(a) { return a + -5; }",
+      "function f(a, b) { return a - -b; }",
+      "function f(a) { return a * -1; }",
+      "function f(a) { return a / -2.5; }",
+      "function f(a) { return -a + -a; }",
+      "function f(a) { return a % -3; }",
+      "function f(a) { let x = 0; x += -1; return x; }",
+      "function f(a) { let x = 1; x *= -2; return x; }",
+      "const g = (x) => x * -2;",
+      "function f(o) { return o?.a ?? -1; }",
+      "function f(n) { return `v${n}` + -1; }",
+      "function f(a) { return a >= 0 ? -1 : -2; }",
+      "function f(a) { /* a >= b */ return a < -10; }",
+      "function f(a) { if (a < -1) { return !a; } return -0; }",
+      "class C { m(a) { return a * -3; } }",
+    ];
+    let total = 0;
+    for (const src of corpus) {
+      const report = mutateReport(src, { seed: 1 });
+      total += report.mutants.length;
+      for (const m of report.mutants) {
+        expect(() => parse(m.code, { ecmaVersion: "latest" }), `invalid mutant for: ${src}`).not.toThrow();
+      }
+    }
+    expect(total).toBeGreaterThan(20);
+  });
+
+  it("reports how many candidates it repaired or dropped", () => {
+    const report = mutateReport("function f(a, b) { return a - -b; }", { seed: 1 });
+    expect(report.repaired + report.dropped).toBeGreaterThanOrEqual(0);
+    expect(Number.isInteger(report.repaired)).toBe(true);
+    expect(Number.isInteger(report.dropped)).toBe(true);
   });
 });
 

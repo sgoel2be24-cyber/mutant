@@ -13,7 +13,7 @@
  * marked killed-by-timeout.
  */
 
-export type MutantStatus = "killed" | "survived" | "timeout";
+export type MutantStatus = "killed" | "survived" | "timeout" | "invalid";
 
 export interface MutantResult {
   readonly mutantId: string;
@@ -28,6 +28,12 @@ export interface TestOutcome {
   readonly name: string;
   readonly passed: boolean;
   readonly error?: string | undefined;
+  /**
+   * True when the failure came from parsing/evaluating the code or expression
+   * itself (a SyntaxError), not from an assertion failing. An unparseable
+   * mutant must never be scored as a kill — it says nothing about the tests.
+   */
+  readonly syntaxError?: boolean | undefined;
 }
 
 export interface SuiteRun {
@@ -42,6 +48,8 @@ export interface ScoreSummary {
   readonly killed: number;
   readonly survived: number;
   readonly timeout: number;
+  /** Mutants excluded from the denominator because they could not be parsed. */
+  readonly invalid: number;
   /** Stryker-style mutation score: (killed + timeout) / total. */
   readonly score: number;
 }
@@ -52,15 +60,21 @@ export interface ScoreSummary {
  * mutant distinguished it from the original.
  */
 export function summarize(results: readonly MutantResult[]): ScoreSummary {
-  const total = results.length;
-  const killed = results.filter((r) => r.status === "killed").length;
-  const timeout = results.filter((r) => r.status === "timeout").length;
-  const survived = results.filter((r) => r.status === "survived").length;
+  // `invalid` mutants are excluded from both numerator and denominator: a
+  // mutant that could not be parsed is not evidence about the test suite, and
+  // counting it as killed would inflate the score.
+  const scored = results.filter((r) => r.status !== "invalid");
+  const total = scored.length;
+  const killed = scored.filter((r) => r.status === "killed").length;
+  const timeout = scored.filter((r) => r.status === "timeout").length;
+  const survived = scored.filter((r) => r.status === "survived").length;
+  const invalid = results.length - total;
   return {
     total,
     killed,
     survived,
     timeout,
+    invalid,
     score: total === 0 ? 0 : (killed + timeout) / total,
   };
 }

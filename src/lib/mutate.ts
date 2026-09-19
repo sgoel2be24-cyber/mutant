@@ -5,15 +5,24 @@ import { seededShuffle } from "./prng";
  * The mutation engine — the mechanism this project owns.
  *
  * Parses user JavaScript with acorn, walks the AST, and rewrites the source at
- * each mutation site: flipped comparison/arithmetic/logical operators, wiped
- * or nudged literals, dropped guards and conditions, dropped return values.
- * Splices always cover the exact operator token or literal, never the whole
- * expression, so every mutant is guaranteed to stay syntactically valid —
- * and `mutate.test.ts` re-parses every mutant to prove it.
+ * each mutation site: flipped comparison/arithmetic/logical operators, wiped or
+ * nudged literals, dropped guards and conditions, dropped return values.
  *
- * Determinism: discovery order is AST traversal order (stable), and when a
- * run exceeds `cap`, the kept subset is a seeded Fisher-Yates. Same seed in,
- * same mutants out — a judge re-running the demo sees the same score.
+ * VALIDITY GUARANTEE (the whole product rests on this): every returned mutant
+ * is re-parsed before it is handed out. A splice that would produce invalid
+ * JavaScript is first repaired by re-emitting the operands parenthesised with
+ * one operator flipped, and dropped if even that fails. This exists because a
+ * minimal operator splice is unsafe in a real case: `a + -5` becomes `a--5`
+ * when the flip replaces " + " with "-", since a unary minus on the right
+ * operand fuses with the operator. An unparseable mutant is worse than a
+ * missing one — the sandbox would score it as a KILL (its parse throws, so
+ * every test "fails"), silently inflating the score in a tool whose entire
+ * promise is honest scoring. So the engine refuses to emit one, and reports
+ * how many it repaired or rejected.
+ *
+ * Determinism: discovery order is AST traversal order (stable), and when a run
+ * exceeds `cap`, the kept subset is a seeded Fisher-Yates. Same seed in, same
+ * mutants out — a judge re-running the demo sees the same score.
  */
 
 export interface Mutant {
@@ -24,11 +33,21 @@ export interface Mutant {
   readonly span: { readonly start: number; readonly end: number };
   readonly originalText: string;
   readonly replacementText: string;
+  /** True when this mutant needed the parenthesised repair to stay valid. */
+  readonly repaired: boolean;
 }
 
 export interface MutateOptions {
   readonly cap?: number;
   readonly seed?: number;
+}
+
+export interface MutateReport {
+  readonly mutants: readonly Mutant[];
+  /** Candidates repaired by re-emitting the operands parenthesised. */
+  readonly repaired: number;
+  /** Candidates discarded because no valid form could be produced. */
+  readonly dropped: number;
 }
 
 interface AcornNode {
@@ -69,12 +88,20 @@ const ASSIGNMENT_FLIPS: Readonly<Record<string, string>> = {
   "/=": "*=",
 };
 
+interface Fallback {
+  readonly start: number;
+  readonly end: number;
+  readonly replacement: string;
+}
+
+/** A candidate rewrite: the minimal splice, plus an optional repair form. */
 interface Mutation {
   readonly operator: string;
   readonly description: string;
   readonly start: number;
   readonly end: number;
   readonly replacement: string;
+  readonly fallback?: Fallback;
 }
 
 function isNode(v: unknown): v is AcornNode {
@@ -122,16 +149,37 @@ function operatorSpan(node: AcornNode): { start: number; end: number } | null {
   return { start: left.end, end: right.start };
 }
 
-function lookupFlip(table: Readonly<Record<string, string>>, node: AcornNode, operator: string): Mutation | null {
+/** Slices a node's exact source text; set once per `mutate` call. */
+let currentSource = "";
+function sourceText(node: AcornNode): string {
+  return currentSource.slice(node.start, node.end);
+}
+
+function lookupFlip(
+  table: Readonly<Record<string, string>>,
+  node: AcornNode,
+  operator: string,
+): Mutation | null {
   const to = table[operator];
   const span = operatorSpan(node);
   if (to === undefined || !span) return null;
+  const left = nodeAt(node, "left");
+  const right = nodeAt(node, "right");
+  const fallback: Fallback | undefined =
+    left && right
+      ? {
+          start: node.start,
+          end: node.end,
+          replacement: `(${sourceText(left)} ${to} ${sourceText(right)})`,
+        }
+      : undefined;
   return {
     operator: "flip-operator",
     description: `\`${operator}\` -> \`${to}\``,
     start: span.start,
     end: span.end,
     replacement: to,
+    ...(fallback ? { fallback } : {}),
   };
 }
 
@@ -149,7 +197,31 @@ function mutateNode(node: AcornNode): Mutation | null {
     }
     case "AssignmentExpression": {
       const operator = str(node, "operator") ?? "";
-      return lookupFlip(ASSIGNMENT_FLIPS, node, operator);
+      // Assignment expressions cannot be wrapped in a fresh pair of parens in
+      // every position (e.g. `(x += 1)` is fine, but the repair must be a
+      // single expression) — the minimal splice is used, and the validity gate
+      // repairs or drops it if that is unsafe.
+      const left = nodeAt(node, "left");
+      const right = nodeAt(node, "right");
+      const to = ASSIGNMENT_FLIPS[operator];
+      const span = operatorSpan(node);
+      if (to === undefined || !span) return null;
+      const fallback: Fallback | undefined =
+        left && right
+          ? {
+              start: node.start,
+              end: node.end,
+              replacement: `(${sourceText(left)} ${to} ${sourceText(right)})`,
+            }
+          : undefined;
+      return {
+        operator: "flip-operator",
+        description: `\`${operator}\` -> \`${to}\``,
+        start: span.start,
+        end: span.end,
+        replacement: to,
+        ...(fallback ? { fallback } : {}),
+      };
     }
     case "UnaryExpression": {
       // Drop negation: splice out just the `!` token.
@@ -208,7 +280,7 @@ function mutateNode(node: AcornNode): Mutation | null {
       if (typeof value === "string") {
         return {
           operator: "wipe-string",
-          description: "string -> \"\"",
+          description: 'string -> ""',
           start: node.start,
           end: node.end,
           replacement: '""',
@@ -255,14 +327,32 @@ function mutateNode(node: AcornNode): Mutation | null {
   }
 }
 
+function splice(input: string, start: number, end: number, replacement: string): string {
+  return input.slice(0, start) + replacement + input.slice(end);
+}
+
+function parses(code: string): boolean {
+  try {
+    parse(code, { ecmaVersion: "latest" });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /**
  * Generate mutants from a self-contained JavaScript snippet. Throws on syntax
- * errors — the UI layer turns those into an inline error for the user.
+ * errors in the input — the UI layer turns those into an inline error.
+ * Every returned mutant parses; see the validity guarantee above.
  */
-export function mutate(input: string, options: MutateOptions = {}): Mutant[] {
+export function mutateReport(
+  input: string,
+  options: MutateOptions = {},
+): MutateReport {
   const cap = options.cap ?? 200;
   const seed = options.seed ?? 1;
   const ast = parse(input, { ecmaVersion: "latest" }) as unknown as AcornNode;
+  currentSource = input;
 
   const found: Mutation[] = [];
   for (const node of walk(ast)) {
@@ -275,18 +365,52 @@ export function mutate(input: string, options: MutateOptions = {}): Mutant[] {
     }
   }
 
-  const chosen = found.length > cap ? seededShuffle(found, seed).slice(0, cap) : found;
+  // Validity gate: repair an unsafe splice, or drop the candidate.
+  interface Accepted {
+    readonly m: Mutation;
+    readonly start: number;
+    readonly end: number;
+    readonly replacement: string;
+    readonly repaired: boolean;
+  }
+  const accepted: Accepted[] = [];
+  let repaired = 0;
+  let dropped = 0;
+  for (const m of found) {
+    const primary = splice(input, m.start, m.end, m.replacement);
+    if (parses(primary)) {
+      accepted.push({ m, start: m.start, end: m.end, replacement: m.replacement, repaired: false });
+      continue;
+    }
+    const fb = m.fallback;
+    if (fb) {
+      const fixed = splice(input, fb.start, fb.end, fb.replacement);
+      if (parses(fixed) && fixed !== input) {
+        accepted.push({ m, start: fb.start, end: fb.end, replacement: fb.replacement, repaired: true });
+        repaired++;
+        continue;
+      }
+    }
+    dropped++;
+  }
 
-  return chosen.map((m, i) => {
-    const code = input.slice(0, m.start) + m.replacement + input.slice(m.end);
-    return {
-      id: `M${String(i + 1).padStart(3, "0")}`,
-      operator: m.operator,
-      description: m.description,
-      code,
-      span: { start: m.start, end: m.end },
-      originalText: input.slice(m.start, m.end),
-      replacementText: m.replacement,
-    } satisfies Mutant;
-  });
+  const chosen = accepted.length > cap ? seededShuffle(accepted, seed).slice(0, cap) : accepted;
+
+  const mutants = chosen.map((a, i) => ({
+    id: `M${String(i + 1).padStart(3, "0")}`,
+    operator: a.m.operator,
+    description: a.repaired ? `${a.m.description} (repaired)` : a.m.description,
+    code: splice(input, a.start, a.end, a.replacement),
+    span: { start: a.start, end: a.end },
+    originalText: input.slice(a.start, a.end),
+    replacementText: a.replacement,
+    repaired: a.repaired,
+  }));
+
+  return { mutants, repaired, dropped };
+}
+
+/** Convenience wrapper: the mutant list only. */
+export function mutate(input: string, options: MutateOptions = {}): Mutant[] {
+  return mutateReport(input, options).mutants.map((m) => ({ ...m }));
 }

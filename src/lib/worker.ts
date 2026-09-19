@@ -10,7 +10,12 @@
  * worker, so an infinite-loop mutant cannot freeze the page.
  */
 
-type TestOutcome = { name: string; passed: boolean; error?: string | undefined };
+type TestOutcome = {
+  name: string;
+  passed: boolean;
+  error?: string | undefined;
+  syntaxError?: boolean | undefined;
+};
 
 interface RunRequest {
   kind: "run";
@@ -31,16 +36,31 @@ function runSuite(code: string, tests: string[]): TestOutcome[] {
   const outcomes: TestOutcome[] = [];
   for (const test of tests) {
     const name = test.length > 80 ? test.slice(0, 77) + "..." : test;
+    let fn: () => unknown;
     try {
-      // The test expression is evaluated with `result` bound to the value of
-      // the test expression itself; truthy = pass, falsy or throw = fail.
-      const fn = new Function(
+      // Constructing the function is where a syntax error in the code or in the
+      // test expression surfaces. That is NOT an assertion failure — the mutant
+      // is unparseable, or the test is malformed, and neither is evidence about
+      // the suite. Flag it so the caller can exclude it from scoring.
+      fn = new Function(
         "\"use strict\";\n" +
           code +
           "\n;const result = (" + test + ");\n" +
           "return result;",
-      )();
-      if (fn) {
+      ) as () => unknown;
+    } catch (e) {
+      outcomes.push({
+        name,
+        passed: false,
+        error: e instanceof Error ? e.message : String(e),
+        syntaxError: true,
+      });
+      continue;
+    }
+    try {
+      // Invoking it is where a runtime failure (assertion, throw, TypeError)
+      // surfaces: a genuine kill.
+      if (fn()) {
         outcomes.push({ name, passed: true });
       } else {
         outcomes.push({ name, passed: false, error: "expression was falsy" });

@@ -21,13 +21,36 @@ describe("summarize (Stryker-style scoring)", () => {
       killed: 2,
       survived: 3,
       timeout: 1,
+      invalid: 0,
       // (2 killed + 1 timeout) / 6 = 50%
       score: 0.5,
     });
   });
 
   it("reports 0, not NaN, on an empty run", () => {
-    expect(summarize([])).toEqual({ total: 0, killed: 0, survived: 0, timeout: 0, score: 0 });
+    expect(summarize([])).toEqual({
+      total: 0,
+      killed: 0,
+      survived: 0,
+      timeout: 0,
+      invalid: 0,
+      score: 0,
+    });
+  });
+
+  it("EXCLUDES unparseable mutants from the score instead of counting them as kills", () => {
+    // Audit finding: an invalid mutant used to raise the score. It must not
+    // appear in either the numerator or the denominator.
+    const withInvalid: MutantResult[] = [
+      { mutantId: "M001", status: "killed", killedBy: "t", durationMs: 0 },
+      { mutantId: "M002", status: "invalid", durationMs: 0 },
+      { mutantId: "M003", status: "survived", durationMs: 0 },
+    ];
+    const s = summarize(withInvalid);
+    expect(s.invalid).toBe(1);
+    expect(s.total).toBe(2); // M002 not counted
+    expect(s.killed).toBe(1);
+    expect(s.score).toBe(0.5); // 1/2, NOT 2/3
   });
 
   it("a perfect suite scores 1", () => {

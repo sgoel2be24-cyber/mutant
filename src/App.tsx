@@ -1,6 +1,6 @@
 import { useMemo, useState } from "react";
 import { EXAMPLES, exampleById, type Example } from "./lib/samples";
-import { mutate, type Mutant } from "./lib/mutate";
+import { mutateReport, type Mutant } from "./lib/mutate";
 import { runMutationCampaign } from "./lib/runnerClient";
 import { summarize, type MutantResult, type ScoreSummary } from "./lib/runner";
 import { diffSource } from "./lib/diff";
@@ -27,6 +27,10 @@ interface RunState {
   mutants?: readonly Mutant[];
   results?: readonly MutantResult[];
   gateFailures?: readonly string[];
+  scoredTests?: number;
+  repaired?: number;
+  dropped?: number;
+  durationMs?: number;
   progress?: { done: number; total: number };
   error?: string;
 }
@@ -132,18 +136,42 @@ export default function App() {
     const useTests = testsOverride ?? parsedTests;
     setRun({ phase: "running" });
     try {
-      const mutants = mutate(code, { seed: 1 });
-      const { gate, results } = await runMutationCampaign(code, useTests, mutants, {
+      const report = mutateReport(code, { seed: 1 });
+      const mutants = report.mutants;
+      const campaign = await runMutationCampaign(code, useTests, mutants, {
         onProgress: (done, total) => setRun((r) => ({ ...r, progress: { done, total } })),
       });
-      const gateFailures = gate.outcomes.filter((o) => !o.passed).map((o) => o.name);
-      const summary = summarize(results);
-      setRun({ phase: "done", mutants, results, summary, gateFailures });
+      if (campaign.scoredTests.length === 0) {
+        // Nothing passed on the original, so there is nothing to score. Say so
+        // instead of publishing a meaningless 0%.
+        setRun({
+          phase: "error",
+          error:
+            "None of these tests pass on the original code, so no mutant can be scored. " +
+            "A test that fails before any mutation proves nothing — fix the tests first.",
+          gateFailures: campaign.gateFailures,
+        });
+        return;
+      }
+      const summary = summarize(campaign.results);
+      setRun({
+        phase: "done",
+        mutants,
+        results: campaign.results,
+        summary,
+        gateFailures: campaign.gateFailures,
+        scoredTests: campaign.scoredTests.length,
+        repaired: report.repaired,
+        dropped: report.dropped,
+        durationMs: campaign.durationMs,
+      });
 
       // Second pass: do the survivors also survive the curated boundary suite?
-      if (example && gateFailures.length === 0) {
+      if (example && campaign.gateFailures.length === 0) {
         const survivors = mutants.filter(
-          (m) => results.find((r) => r.mutantId === m.id)?.status === "survived",
+          (m) =>
+            campaign.results.find((r) => r.mutantId === m.id)?.status ===
+            "survived",
         );
         if (survivors.length > 0) {
           const probe = await runMutationCampaign(
@@ -162,7 +190,7 @@ export default function App() {
       } else {
         setEquivSuspects([]);
       }
-      if (baseline === null && gateFailures.length === 0) {
+      if (baseline === null && campaign.gateFailures.length === 0) {
         setBaseline({
           score: Math.round(summary.score * 100),
           survivors: summary.survived,
@@ -220,6 +248,10 @@ export default function App() {
       summary: run.summary,
       mutationScorePercent: Math.round(run.summary.score * 100),
       gateFailures: run.gateFailures ?? [],
+      testsScored: run.scoredTests ?? 0,
+      mutantsRepaired: run.repaired ?? 0,
+      mutantsDiscardedUnsafe: run.dropped ?? 0,
+      campaignDurationMs: Math.round(run.durationMs ?? 0),
       possiblyEquivalent: equivSuspects,
       mutants: run.mutants.map((m) => {
         const r = run.results?.find((x) => x.mutantId === m.id);
@@ -321,9 +353,9 @@ export default function App() {
 
       {run.gateFailures && run.gateFailures.length > 0 && (
         <p className="error">
-          {run.gateFailures.length} test(s) fail on the ORIGINAL code — they are
-          excluded from scoring. A test that fails before any mutation is
-          broken, not useful: fix it and re-run.
+          {run.gateFailures.length} test(s) fail on the ORIGINAL code and were
+          EXCLUDED from scoring ({run.scoredTests ?? 0} kept). A test that fails
+          before any mutation is broken, not useful.
         </p>
       )}
 
@@ -334,6 +366,8 @@ export default function App() {
             <span className="of">
               mutation score — {run.summary.killed + run.summary.timeout} killed ·{" "}
               {run.summary.survived} survived / {run.summary.total}
+              {run.summary.invalid > 0 ? ` · ${run.summary.invalid} excluded as unparseable` : ""}
+              {run.dropped ? ` · ${run.dropped} unsafe mutations discarded` : ""}
             </span>
             <span className="bar">
               <i style={{ width: `${Math.round(run.summary.score * 100)}%` }} />

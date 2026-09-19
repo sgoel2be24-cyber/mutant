@@ -90,7 +90,7 @@ The engine tests are the interesting ones: they prove mutants are valid, precise
 
 ## Honest limits
 
-- **JavaScript only.** The engine parses JS/TS-compatible syntax; TypeScript type annotations and other languages are out of scope for a 24-hour build.
+- **TypeScript is supported for parsing and mutation.** Type annotations, generics, `as` casts, interfaces and non-null assertions are parsed by `acorn-typescript` and stripped to runtime JS before the sandbox runs the code — a typed function mutates and scores exactly like its untyped equivalent. The mutation operators work on runtime syntax, so they are unchanged. Not in scope: type-aware mutations (mutating at the type level, e.g. nullability or generic constraints) and non-JS languages.
 - **Not every survivor is a real bug.** Some mutants are semantically equivalent to the original. Mutant flags the ones it can detect via the curated suite rather than silently counting them as defeats.
 - **Single function, one screen.** Multi-file projects and module resolution aren't handled.
 - **The sandbox is a Web Worker, not a security boundary.** It isolates crashes, hangs and globals; it is not designed to run adversarial code you didn't paste yourself.

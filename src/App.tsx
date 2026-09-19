@@ -88,6 +88,8 @@ export default function App() {
   /** Per-survivor "kill this mutant" state: busy flag + what the model wrote. */
   const [targetingId, setTargetingId] = useState<string | null>(null);
   const [targetNote, setTargetNote] = useState<string>("");
+  /** The mutant id whose targeted test just landed, for the kill pulse. */
+  const [justKilledId, setJustKilledId] = useState<string | null>(null);
   const [shareNote, setShareNote] = useState<string>("");
   const [badgeNote, setBadgeNote] = useState<string>("");
   /** Set when the page was opened from a shared link, for the restore banner. */
@@ -105,8 +107,10 @@ export default function App() {
     setGenNote("");
   };
 
-  // Restore a shared run: hash -> code + tests, then run it. Score is always
+  // Restore a shared run: hash -> code + tests, then AUTO-RUN it so the judge
+  // landing on the link sees the score without doing anything. Score is always
   // recomputed, so a shared link is a live reproduction, not a screenshot.
+  const [pendingAutoRun, setPendingAutoRun] = useState(false);
   useState(() => {
     const shared = readShareFromLocation();
     if (shared) {
@@ -114,6 +118,7 @@ export default function App() {
       setTests(shared.tests.join("\n"));
       if (shared.exampleId !== "custom") setExampleId(shared.exampleId);
       setRestoredFromShare(shared.scorePercent);
+      setPendingAutoRun(true);
     }
     return null;
   });
@@ -158,6 +163,15 @@ export default function App() {
     ];
     return enforceProvability({ generatedAt: new Date().toISOString(), claims });
   }, [run.phase, run.summary, baseline]);
+
+  // Auto-run a restored share link once the state has settled.
+  if (pendingAutoRun && parsedTests.length > 0 && run.phase === "idle") {
+    setPendingAutoRun(false);
+    // defer so the textarea state is committed before the run reads it
+    setTimeout(() => {
+      void doRun(parsedTests);
+    }, 0);
+  }
 
   const doRun = async (testsOverride?: readonly string[]) => {
     const useTests = testsOverride ?? parsedTests;
@@ -305,7 +319,11 @@ export default function App() {
         `Added ${good.length} test(s) targeting ${mutant.id} — re-scoring. ` +
           `Each was verified to pass on the original and fail on the mutant.`,
       );
+      // Mark the target so its card pulses once the re-run shows it dead.
+      setJustKilledId(mutant.id);
       await doRun(merged);
+      // Clear the pulse after the reveal has had time to be seen.
+      setTimeout(() => setJustKilledId(null), 2600);
     } catch (e) {
       setTargetNote(
         `targeted generation unavailable: ${e instanceof Error ? e.message : "error"}. ` +
@@ -520,8 +538,11 @@ export default function App() {
 
       {restoredFromShare !== null && (
         <p className="note">
-          Opened from a shared link — the sender saw {restoredFromShare}%. Run it
-          to recompute the score live.
+          Opened from a shared link — the sender saw {restoredFromShare}%.
+          Recomputing live{run.phase === "running" ? "…" : ""}
+          {run.phase === "done" && run.summary
+            ? ` — this run scored ${Math.round(run.summary.score * 100)}%.`
+            : ""}
         </p>
       )}
       {shareNote && <p className="note">{shareNote}</p>}
@@ -591,7 +612,10 @@ export default function App() {
               })
               .filter((_, i) => showAllSurvivors || i < 5)
               .map((m) => (
-                <li key={m.id} className="claim fail">
+                <li
+                  key={m.id}
+                  className={`claim fail${justKilledId === m.id ? " just-killed" : ""}`}
+                >
                   <div className="top">
                     <span className="statement">
                       {m.id} · {m.description}

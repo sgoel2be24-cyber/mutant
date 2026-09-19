@@ -178,3 +178,65 @@ li.claim.pending-reveal { opacity: 0.35; }
 .history-line .tick { width: 6px; background: var(--accent-dim); border-radius: 2px 2px 0 0; display: inline-block; }
 .history-line .tick.now { background: var(--accent); }
 .history-end { color: var(--fg); }
+
+/* ---------- accessibility & finish ---------- */
+
+/* Keyboard focus must be visible everywhere — dark themes often lose it. */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+button:focus:not(:focus-visible) { outline: none; }
+
+/* Respect reduced motion across every animated element, not just the cascade. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* High contrast: stronger borders and text when the OS asks for it. */
+@media (prefers-contrast: more) {
+  :root { --muted: #b9c1d4; --border: #3a4152; }
+  li.claim { border-width: 2px; }
+  .pill { border-width: 2px; }
+}
+
+/* Print: the evidence page should read as a clean report, not a dark web app.
+   Light background, no gradients, collapsed controls hidden. */
+@media print {
+  body {
+    background: #ffffff !important;
+    color: #111318;
+    font-size: 12px;
+  }
+  .wrap { padding: 0; max-width: none; }
+  .grid2 { grid-template-columns: 1fr; }
+  textarea, .row.actions, .chip, button { display: none !important; }
+  .score, li.claim, .panel {
+    border: 1px solid #c9ced8 !important;
+    background: #ffffff !important;
+    break-inside: avoid;
+  }
+  .score .num, .metric { color: #0a6b46; }
+  .muted, .lede, .artifacts, .note, .footer { color: #4a5060; }
+  a { color: #0a4fd4; text-decoration: underline; }
+  pre.diff { background: #f5f6f8; color: #333; }
+  pre.diff .add { color: #b3261e; background: #fdecea; }
+  pre.diff .del { color: #0a6b46; background: #e6f4ee; }
+  .history { display: none; }
+}
+
+/* kill pulse: the card whose mutant was just targeted-and-killed flashes once,
+   so the causal link "my test killed THIS bug" is visible without reading. */
+@keyframes killpulse {
+  0% { box-shadow: 0 0 0 0 rgba(110, 231, 183, 0.0); }
+  30% { box-shadow: 0 0 0 6px rgba(110, 231, 183, 0.35); border-left-color: var(--accent); }
+  100% { box-shadow: 0 0 0 0 rgba(110, 231, 183, 0.0); }
+}
+li.claim.just-killed { animation: killpulse 1.4s ease-out 1; }
+@media (prefers-reduced-motion: reduce) { li.claim.just-killed { animation: none; border-left-color: var(--accent); } }

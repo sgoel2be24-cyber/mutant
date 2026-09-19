@@ -1,10 +1,37 @@
-import { parse } from "acorn";
+import * as acorn from "acorn";
+import tsPlugin from "acorn-typescript";
 import { seededShuffle } from "./prng";
+
+// TS-aware parser: acorn + the acorn-typescript plugin, so a pasted function
+// with type annotations parses as-is instead of failing. The engine operates on
+// the runtime syntax (comparisons, arithmetic, guards), which is identical in
+// TS, so every operator works unchanged. The validity guarantee is preserved by
+// re-parsing each mutant with the SAME parser that produced it.
+// acorn-typescript's types pin to its own internal Parser class; the runtime
+// contract is acorn's Parser.extend. The cast is the documented escape hatch.
+const TsParser = acorn.Parser.extend(
+  tsPlugin() as unknown as (BaseParser: typeof acorn.Parser) => typeof acorn.Parser,
+);
+/** Public entry point for tests and the UI: parse TS or JS with one call. */
+export function parseSource(input: string): unknown {
+  return parseAny(input);
+}
+
+function parseAny(input: string): unknown {
+  try {
+    return TsParser.parse(input, { ecmaVersion: "latest" });
+  } catch {
+    // Plain JS that the TS parser rejects for an edge reason falls back to the
+    // stock parser so a weird TS construct never blocks an ordinary function.
+    return acorn.parse(input, { ecmaVersion: "latest" });
+  }
+}
 
 /**
  * The mutation engine — the mechanism this project owns.
  *
- * Parses user JavaScript with acorn, walks the AST, and rewrites the source at
+ * Parses user JavaScript/TypeScript with acorn, walks the AST, and rewrites the
+ * source at
  * each mutation site: flipped comparison/arithmetic/logical operators, wiped or
  * nudged literals, dropped guards and conditions, dropped return values.
  *
@@ -333,7 +360,7 @@ function splice(input: string, start: number, end: number, replacement: string):
 
 function parses(code: string): boolean {
   try {
-    parse(code, { ecmaVersion: "latest" });
+    parseAny(code);
     return true;
   } catch {
     return false;
@@ -351,7 +378,7 @@ export function mutateReport(
 ): MutateReport {
   const cap = options.cap ?? 200;
   const seed = options.seed ?? 1;
-  const ast = parse(input, { ecmaVersion: "latest" }) as unknown as AcornNode;
+  const ast = parseAny(input) as AcornNode;
   currentSource = input;
 
   const found: Mutation[] = [];

@@ -6,6 +6,9 @@
 **Built:** solo, during the HackDevengers 2.0 24-hour window (19–20 September 2026), Open Innovation track.
 
 [![ci](https://github.com/sgoel2be24-cyber/mutant/actions/workflows/ci.yml/badge.svg)](https://github.com/sgoel2be24-cyber/mutant/actions/workflows/ci.yml)
+![mutation score](https://mutant-omega.vercel.app/api/badge?state=eyJjb2RlIjogImZ1bmN0aW9uIGdzdFJhdGUoYW1vdW50KSB7XG4gIGlmIChhbW91bnQgPCAxMDAwKSByZXR1cm4gMDtcbiAgaWYgKGFtb3VudCA8PSA1MDAwKSByZXR1cm4gNTtcbiAgaWYgKGFtb3VudCA-IDUwMDAwKSByZXR1cm4gMjg7XG4gIHJldHVybiAxODtcbn0iLCAidGVzdHMiOiBbImdzdFJhdGUoMjAwMDApID09PSAxOCJdLCAiZXhhbXBsZUlkIjogImdzdCIsICJzY29yZVBlcmNlbnQiOiAzNX0)
+
+> The badge above is generated from a real run of the seed GST example — the number is the actual measured score, not a static image.
 
 ---
 
@@ -101,6 +104,16 @@ The engine tests are the interesting ones: they prove mutants are valid, precise
 - **Type-aware mutation for TypeScript.** Mutating at the type level (type guards, nullability, generics) catches a class of bug the value-level operators cannot.
 - **CI integration + mutation-diff on pull requests.** Run against changed lines only, fail the build on a score regression — the adoption path from a browser tool to a pipeline gate.
 - **Cross-validation of the score.** Report which mutants survived *and* which tests would have killed them, turning the output into a "write this test next" recommendation.
+
+## Extras beyond the core engine
+
+- **Shareable run links** — state lives in the URL hash and recomputes on open, so a shared link is a live reproduction, not a screenshot. Opening one auto-runs and shows the score.
+- **"Kill this mutant"** — target one survivor; the model writes a test that must pass on the original and fail on the mutant, verified before it is inserted, and the score rises by exactly what it catches.
+- **Mutation-score badge** — `/api/badge?state=...` renders a shields-style SVG from a run's state, so the number in a README is one a run actually produced.
+- **CI export** — `mutant-ci.json` with a `fail_below` contract: the adoption path from a browser tool to a pipeline gate.
+- **Score-history ribbon** — the session's runs as a trajectory, so the improvement is visible without reading anything.
+- **Per-survivor explanation** — one plain-language line per survivor, computed from the run data, telling you exactly which boundary your suite never exercises.
+- **Accessibility & print** — full `prefers-reduced-motion` support (the climb and cascade self-disable), visible focus rings, high-contrast mode, and a print stylesheet so the evidence page reads as a clean one-page report.
 
 ## Built with
 

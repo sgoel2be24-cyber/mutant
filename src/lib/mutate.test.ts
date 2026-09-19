@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parse } from "acorn";
-import { mutate, mutateReport } from "./mutate";
+import { mutate, mutateReport, parseSource } from "./mutate";
 
 /**
  * The engine's correctness contract:
@@ -206,6 +206,39 @@ describe("mutate — validity guarantee (audit regression)", () => {
     expect(report.repaired + report.dropped).toBeGreaterThanOrEqual(0);
     expect(Number.isInteger(report.repaired)).toBe(true);
     expect(Number.isInteger(report.dropped)).toBe(true);
+  });
+});
+
+describe("mutate — TypeScript input (feature #4)", () => {
+  const TS_CASES: ReadonlyArray<{ name: string; src: string }> = [
+    { name: "typed params + return type", src: "function add(a: number, b: number): number { return a + b; }" },
+    { name: "generic", src: "function first<T>(xs: T[]): T | undefined { return xs.length > 0 ? xs[0] : undefined; }" },
+    { name: "as cast + optional", src: "function pct(x: number): number { const v = x as number; return v >= 1 ? 100 : v * 100; }" },
+    { name: "interface + method", src: "interface P { price: number } function total(p: P): number { return p.price >= 100 ? p.price * 0.9 : p.price; }" },
+    { name: "readonly array + union", src: "function pick(xs: readonly number[], i: number): number { return xs[i] ?? 0; }" },
+    { name: "satisfies + enum-ish", src: "function lab(s: 'a' | 'b'): number { return s === 'a' ? 1 : 2; }" },
+  ];
+
+  for (const { name, src } of TS_CASES) {
+    it(`parses and mutates TypeScript: ${name}`, () => {
+      const report = mutateReport(src, { seed: 1 });
+      expect(report.mutants.length).toBeGreaterThan(0);
+      for (const m of report.mutants) {
+        expect(() => parseSource(m.code), `invalid mutant for: ${name}`).not.toThrow();
+      }
+    });
+  }
+
+  it("mutates runtime syntax inside TypeScript (the type layer is untouched)", () => {
+    const src = "function f(a: number): boolean { return a >= 18; }";
+    const report = mutateReport(src, { seed: 1 });
+    const ops = new Set(report.mutants.map((m) => m.operator));
+    expect(ops.has("flip-operator")).toBe(true);
+    expect(ops.has("wipe-number")).toBe(true);
+  });
+
+  it("still rejects true syntax errors with a thrown error", () => {
+    expect(() => mutate("function f( {")).toThrow();
   });
 });
 

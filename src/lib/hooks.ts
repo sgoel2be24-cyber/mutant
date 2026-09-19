@@ -54,14 +54,34 @@ export function useCountUp(target: number, durationMs = 900): number {
       return;
     }
     const started = performance.now();
+    // rAF can be suspended entirely (headless browsers, background tabs), which
+    // would freeze the number at the start value. Fall back to a timer so the
+    // count-up always reaches its target even when rAF never fires.
+    const schedule = (cb: (now: number) => void): number => {
+      if (typeof requestAnimationFrame === "function") {
+        let fired = false;
+        const raf = requestAnimationFrame((now) => {
+          fired = true;
+          cb(now);
+        });
+        // if rAF does not fire within two frames, drive it with a timeout
+        setTimeout(() => {
+          if (!fired) cb(performance.now());
+        }, 34);
+        return raf;
+      }
+      return window.setTimeout(() => cb(performance.now()), 16) as unknown as number;
+    };
     const tick = (now: number) => {
       const t = Math.min(1, (now - started) / durationMs);
       const eased = 1 - Math.pow(1 - t, 3);
       setValue(from + (target - from) * eased);
-      if (t < 1) rafRef.current = requestAnimationFrame(tick);
+      if (t < 1) rafRef.current = schedule(tick);
     };
-    rafRef.current = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(rafRef.current);
+    rafRef.current = schedule(tick);
+    return () => {
+      if (typeof cancelAnimationFrame === "function") cancelAnimationFrame(rafRef.current);
+    };
     // animate on target change only; `value` is read via displayRef at start.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [target, durationMs, reduced]);

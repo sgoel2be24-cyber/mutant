@@ -4,7 +4,7 @@
 
 [![ci](https://github.com/sgoel2be24-cyber/hackdevengers-2.0/actions/workflows/ci.yml/badge.svg)](https://github.com/sgoel2be24-cyber/hackdevengers-2.0/actions/workflows/ci.yml)
 
-**Live demo:** https://mutant-oemzhuztm-codes-projects-48d92751.vercel.app · **Built:** 19-20 September 2026, solo, during the 24-hour
+**Live demo:** https://mutant-omega.vercel.app · **Built:** 19-20 September 2026, solo, during the 24-hour
 HackDevengers 2.0 window.
 
 ---

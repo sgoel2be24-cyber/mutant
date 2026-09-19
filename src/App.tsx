@@ -7,24 +7,23 @@ import {
 } from "./lib/evidence";
 
 /**
- * Shell only. The winning design replaces this report with the real one and
- * keeps the same contract: every claim renders with its measurement and its
- * artifacts, or it renders as UNMEASURED. Nothing gets to look proven for free.
+ * Shell while the engine lands. The contract stays: every claim renders with
+ * its measurement and artifacts, or renders as PENDING. Nothing looks proven
+ * for free — the first deploy of the real engine replaces this report.
  */
 const SHELL_REPORT: EvidenceReport = {
   generatedAt: new Date(0).toISOString(),
   claims: [
     {
-      id: "claim-shape",
+      id: "claim-score-rises",
       statement:
-        "The product's core claim is provable from a number that moves during the demo.",
-      state: "pass",
-      measurement: { label: "proof coverage", before: 0, after: 3, unit: " claims" },
+        "Mutation score rises when generated tests are added — measured live, on this page.",
+      state: "pending",
       artifacts: [
         { kind: "file", ref: "src/lib/evidence.test.ts" },
         { kind: "file", ref: "README.md#evidence" },
       ],
-      demoStep: "step 1 — open the deployed link, the scorecard is the first thing on screen",
+      demoStep: "the mutation engine and curated example land in the next deploy",
     } satisfies Claim,
   ],
 };
@@ -37,13 +36,13 @@ export default function App() {
     <main className="wrap">
       <p className="eyebrow">HackDevengers 2.0 · 24h · Open Innovation</p>
       <h1>
-        Replace this shell with the <span className="mark">one mechanism</span>{" "}
-        that wins.
+        Your tests are <span className="mark">lying to you</span>.
       </h1>
       <p className="lede">
-        Scaffold verified green. Every candidate design on the shortlist keeps
-        this contract: a claim is only shown as proven when it carries a
-        measured before/after pair and the artifacts that produced it.
+        Mutant rewrites your function dozens of ways — flipped operators, nudged
+        boundaries, dropped guards — and checks which mutations your suite
+        actually catches. A mutation your tests survive is a bug they can never
+        find. Live build during the 24-hour window; the engine lands next.
       </p>
 
       <section className="score" aria-label="proof scorecard">
@@ -76,7 +75,7 @@ export default function App() {
 
       <p className="footer">
         Run <code>pnpm test</code> for the guard tests, <code>pnpm build</code>{" "}
-        for the production bundle. Deploy target: Vercel (CLI already authed).
+        for the production bundle.
       </p>
     </main>
   );

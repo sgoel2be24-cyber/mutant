@@ -1,8 +1,6 @@
-# HACKDEVENGERS 2.0
+# MUTANT — Tests That Prove Themselves
 
-TODO: replace with the real project title (6-8 words, no "AI" unless earned).
-
-> One-line description of the single mechanism this product proves.
+> In-browser mutation testing: paste a function and its tests, watch the code get rewritten N ways, see exactly which bugs the suite fails to catch — then let an LLM write better tests and prove the improvement with a score.
 
 [![ci](https://github.com/sgoel2be24-cyber/hackdevengers-2.0/actions/workflows/ci.yml/badge.svg)](https://github.com/sgoel2be24-cyber/hackdevengers-2.0/actions/workflows/ci.yml)
 

@@ -1,9 +1,9 @@
 {
-  "name": "hackdevengers-2.0",
+  "name": "mutant",
   "private": true,
   "version": "0.1.0",
   "type": "module",
-  "description": "HackDevengers 2.0 (24h, Open Innovation) submission",
+  "description": "In-browser mutation testing that proves your tests actually catch bugs.",
   "scripts": {
     "dev": "vite",
     "build": "tsc -p tsconfig.json && vite build",

@@ -50,6 +50,15 @@ h2 { font-size: 19px; margin: 34px 0 12px; }
 .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 0 0 18px; }
 .row .spacer { flex: 1; }
 .row.actions { margin: 18px 0 6px; }
+.callout {
+  display: flex; align-items: center; gap: 12px 16px; flex-wrap: wrap;
+  margin: 0 0 22px; padding: 14px 16px;
+  border: 1px solid var(--accent-dim); border-left: 3px solid var(--accent);
+  background: var(--panel); border-radius: var(--radius);
+}
+.callout > span:first-child { flex: 1 1 260px; }
+.callout .small { flex-basis: 100%; font-size: 12.5px; }
+.lede b { color: var(--fg); font-weight: 600; }
 
 .chip {
   font: 500 13px var(--font);

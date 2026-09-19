@@ -101,6 +101,10 @@ export default function App() {
       setRestoredFromShare(shared.scorePercent);
       setRestoredTitle(exampleById(shared.exampleId)?.title ?? null);
       setPendingAutoRun(true);
+    } else {
+      // First visit: score the default example straight away, so the first
+      // thing a visitor sees is a measured result, not two empty-looking boxes.
+      setPendingAutoRun(true);
     }
     return null;
   });
@@ -467,10 +471,11 @@ export default function App() {
         Your tests are <span className="mark">lying to you</span>.
       </h1>
       <p className="lede">
-        Mutant rewrites your function dozens of ways — flipped operators, nudged
-        boundaries, dropped guards — and checks which of those bugs your suite
-        actually catches. Survivors are bugs your tests can never find. Generate
-        better tests and watch the score prove it.
+        AI writes more and more of our tests. <b>Who checks the tests?</b> Mutant
+        plants real bugs in your function — flipped operators, nudged
+        boundaries, dropped guards — and shows which ones your passing suite
+        never catches. Then an AI writes tests aimed at the survivors, and
+        Mutant keeps only the ones <b>proven</b> to catch a bug.
       </p>
 
       <div className="row">
@@ -590,6 +595,20 @@ export default function App() {
             </div>
           )}
 
+          {!generated && run.summary.survived > 0 && (run.gateFailures?.length ?? 0) === 0 && (
+            <div className="callout">
+              <span>
+                Every test passes — yet <b>{run.summary.survived} of {run.summary.total}</b>{" "}
+                planted bugs slip straight through.
+              </span>
+              <button className="primary" onClick={doGenerate} disabled={genBusy}>
+                {genBusy ? "Writing tests…" : "Let AI write tests that catch them →"}
+              </button>
+              <span className="muted small">
+                or pick one survivor below and hit <b>Kill this mutant</b>
+              </span>
+            </div>
+          )}
           {genNote && <p className="note">{genNote}</p>}
           {targetNote && <p className="note">{targetNote}</p>}
 

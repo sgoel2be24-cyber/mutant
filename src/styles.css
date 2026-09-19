@@ -155,3 +155,8 @@ pre.diff .del { color: var(--accent); background: #0f2b22; border-radius: 3px; t
 
 .footer { margin-top: 40px; color: var(--muted); font-size: 13px; max-width: 70ch; }
 .footer code { font-family: var(--mono); color: var(--fg); }
+
+.legend { font-family: var(--mono); font-size: 11px; color: var(--muted); display: flex; align-items: center; gap: 4px; }
+.legend .sw { width: 9px; height: 9px; border-radius: 2px; display: inline-block; }
+.legend .sw.del { background: #0f2b22; border: 1px solid #1d5b47; }
+.legend .sw.add { background: #2a1414; border: 1px solid #6b2b2b; }

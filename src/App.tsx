@@ -75,16 +75,15 @@ export default function App() {
     const claims: Claim[] = [
       {
         id: "claim-weak",
-        statement: "The seed suite leaves bugs uncaptured — measured as surviving mutants.",
+        statement: `The suite as written leaves ${run.summary.survived} of ${run.summary.total} mutants alive — each one is a bug it cannot catch.`,
         state: "pass",
         measurement: {
-          label: "mutation score with seed suite",
+          label: "surviving mutants (ideal: 0)",
           before: 0,
-          after: Math.round(run.summary.score * 100),
-          unit: "%",
+          after: run.summary.survived,
         },
         artifacts: [{ kind: "log", ref: "live run on this page" }],
-        demoStep: "beat 2 — the score after the first Run",
+        demoStep: "beat 2 — survivor list after the first Run",
       },
       {
         id: "claim-strong",
@@ -350,6 +349,10 @@ export default function App() {
                       </span>
                     ))}
                   </pre>
+                  <div className="legend">
+                    <span className="sw del" /> original &nbsp;·&nbsp;{" "}
+                    <span className="sw add" /> injected mutation
+                  </div>
                 </li>
               ))}
             {run.summary.survived === 0 && (

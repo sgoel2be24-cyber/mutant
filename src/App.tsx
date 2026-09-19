@@ -6,7 +6,7 @@ import { summarize, type MutantResult, type ScoreSummary } from "./lib/runner";
 import { diffSource } from "./lib/diff";
 import { generateTests, generateTargetedTest } from "./lib/generate";
 import { useCountUp, useRevealCascade, useReducedMotion } from "./lib/hooks";
-import { buildShareUrl, readShareFromLocation } from "./lib/share";
+import { buildShareUrl, encodeShare, readShareFromLocation } from "./lib/share";
 import {
   enforceProvability,
   formatMeasurement,
@@ -88,6 +88,7 @@ export default function App() {
   const [targetingId, setTargetingId] = useState<string | null>(null);
   const [targetNote, setTargetNote] = useState<string>("");
   const [shareNote, setShareNote] = useState<string>("");
+  const [badgeNote, setBadgeNote] = useState<string>("");
   /** Set when the page was opened from a shared link, for the restore banner. */
   const [restoredFromShare, setRestoredFromShare] = useState<number | null>(null);
 
@@ -384,6 +385,60 @@ export default function App() {
     }
   };
 
+
+  /** CI-mode export: the gate a pipeline reads. The shape is the contract:
+   *  fail the build when the measured score is below fail_below. */
+  const exportCi = () => {
+    if (run.phase !== "done" || !run.summary) return;
+    const payload = {
+      tool: "mutant-ci",
+      version: 1,
+      generatedAt: new Date().toISOString(),
+      mutationScorePercent: Math.round(run.summary.score * 100),
+      fail_below: 80,
+      pass: Math.round(run.summary.score * 100) >= 80,
+      totals: {
+        mutants: run.summary.total,
+        killed: run.summary.killed,
+        survived: run.summary.survived,
+        timeout: run.summary.timeout,
+        invalid: run.summary.invalid,
+      },
+      gateFailuresExcluded: run.gateFailures ?? [],
+      testsScored: run.scoredTests ?? 0,
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], {
+      type: "application/json",
+    });
+    const url = URL.createObjectURL(blob);
+    const a2 = document.createElement("a");
+    a2.href = url;
+    a2.download = "mutant-ci.json";
+    a2.click();
+    URL.revokeObjectURL(url);
+  };
+
+  /** The badge URL encodes the run state, so the number in the badge is one a
+   *  run actually produced. */
+  const copyBadge = async () => {
+    if (run.phase !== "done" || !run.summary) return;
+    const state = encodeShare({
+      code,
+      tests: parsedTests,
+      exampleId,
+      scorePercent: Math.round(run.summary.score * 100),
+    });
+    const origin = window.location.origin;
+    const badgeUrl = `${origin}/api/badge?state=${state}`;
+    const md = `![mutation score](${badgeUrl})`;
+    try {
+      await navigator.clipboard.writeText(md);
+      setBadgeNote("Badge markdown copied — the SVG is generated from this run.");
+    } catch {
+      setBadgeNote(md);
+    }
+  };
+
   const card = scorecard(evidence);
 
   return (
@@ -451,6 +506,12 @@ export default function App() {
         <button className="ghost" onClick={shareRun} disabled={run.phase !== "done"}>
           Share run link
         </button>
+        <button className="ghost" onClick={copyBadge} disabled={run.phase !== "done"}>
+          Copy badge
+        </button>
+        <button className="ghost" onClick={exportCi} disabled={run.phase !== "done"}>
+          CI export
+        </button>
       </div>
 
       {restoredFromShare !== null && (
@@ -460,6 +521,7 @@ export default function App() {
         </p>
       )}
       {shareNote && <p className="note">{shareNote}</p>}
+      {badgeNote && <p className="note">{badgeNote}</p>}
 
       {run.phase === "error" && (
         <p className="error">
